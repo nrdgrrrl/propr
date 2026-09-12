@@ -156,6 +156,12 @@ describe('agent version management', () => {
         assert.doesNotMatch(agentDockerfile, /\bapk add\b/);
     });
 
+    test('pre-creates writable XDG roots for the non-root agent runtime', () => {
+        const agentDockerfile = fs.readFileSync('Dockerfile.agent', 'utf8');
+
+        assert.match(agentDockerfile, /RUN mkdir -p \/home\/node\/workspace \\\n+    \/home\/node\/.config \\\n+    \/home\/node\/.cache \\\n+    && chown -R node:node \/home\/node/);
+    });
+
     test('launches ownership-repairing agent entrypoints as root with CHOWN', () => {
         const params = {
             worktreePath: '/tmp/worktree',

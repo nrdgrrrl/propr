@@ -90,6 +90,8 @@ RUN set -eu; \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /home/node/workspace \
+    /home/node/.config \
+    /home/node/.cache \
     && chown -R node:node /home/node
 
 COPY scripts/init-firewall.sh /usr/local/bin/init-firewall.sh
