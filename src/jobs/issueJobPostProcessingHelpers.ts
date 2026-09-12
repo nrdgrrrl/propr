@@ -11,6 +11,7 @@ import {
     PlanIssueStatus,
     getPlanIssuesByDraft,
     db,
+    isEpicBranch,
     type CommentEventConfig,
     type ClaudeCodeResponse,
     type IssueJobData,
@@ -227,6 +228,92 @@ async function triggerNextPlanIssueIfNeeded(
     }
 }
 
+async function tryDirectMergeForNoCiEpic(options: {
+    issueRef: IssueJobData;
+    labels: Array<{ name: string }>;
+    prNumber: number;
+    log: Logger;
+}): Promise<void> {
+    const { issueRef, labels, prNumber, log } = options;
+    const baseBranch = issueRef.baseBranch;
+    if (!issueRef.isChildJob || !baseBranch || !isEpicBranch(baseBranch) || !labels.some(label => label.name === `base-${baseBranch}`)) {
+        return;
+    }
+
+    try {
+        const octokit = await getAuthenticatedOctokit();
+        const repositoryResponse = await octokit.request('GET /repos/{owner}/{repo}', {
+            owner: issueRef.repoOwner,
+            repo: issueRef.repoName,
+        });
+        if (repositoryResponse.data.allow_auto_merge !== false) {
+            log.debug({ prNumber }, 'Skipping no-CI auto-merge fallback because native auto-merge is available');
+            return;
+        }
+
+        const pullRequestResponse = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+            owner: issueRef.repoOwner,
+            repo: issueRef.repoName,
+            pull_number: prNumber,
+        });
+        const pullRequest = pullRequestResponse.data;
+        if (
+            pullRequest.state !== 'open' ||
+            pullRequest.draft === true ||
+            pullRequest.base?.ref !== baseBranch ||
+            pullRequest.mergeable !== true ||
+            pullRequest.mergeable_state !== 'clean' ||
+            !pullRequest.head?.sha
+        ) {
+            log.debug({ prNumber }, 'Skipping no-CI auto-merge fallback because PR is not safely mergeable');
+            return;
+        }
+
+        const [checkRunsResponse, checkSuitesResponse, statusResponse] = await Promise.all([
+            octokit.request('GET /repos/{owner}/{repo}/commits/{ref}/check-runs', {
+                owner: issueRef.repoOwner,
+                repo: issueRef.repoName,
+                ref: pullRequest.head.sha,
+            }),
+            octokit.request('GET /repos/{owner}/{repo}/commits/{ref}/check-suites', {
+                owner: issueRef.repoOwner,
+                repo: issueRef.repoName,
+                ref: pullRequest.head.sha,
+            }),
+            octokit.request('GET /repos/{owner}/{repo}/commits/{ref}/status', {
+                owner: issueRef.repoOwner,
+                repo: issueRef.repoName,
+                ref: pullRequest.head.sha,
+            }),
+        ]);
+        const checkRuns = checkRunsResponse.data.check_runs;
+        const checkSuites = checkSuitesResponse.data.check_suites;
+        const statusContexts = statusResponse.data.total_count ?? statusResponse.data.statuses?.length;
+        if (!Array.isArray(checkRuns) || !Array.isArray(checkSuites) || typeof statusContexts !== 'number') {
+            log.warn({ prNumber }, 'Skipping no-CI auto-merge fallback because check status is unavailable');
+            return;
+        }
+        if (checkRuns.length > 0 || checkSuites.length > 0 || statusContexts > 0) {
+            log.debug({ prNumber, checkRuns: checkRuns.length, checkSuites: checkSuites.length, statusContexts }, 'Skipping no-CI auto-merge fallback because CI/status signals exist');
+            return;
+        }
+
+        const mergeResponse = await octokit.request('PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge', {
+            owner: issueRef.repoOwner,
+            repo: issueRef.repoName,
+            pull_number: prNumber,
+            merge_method: 'squash',
+        });
+        if (mergeResponse.data.merged !== true) {
+            log.warn({ prNumber }, 'No-CI auto-merge fallback did not merge the PR');
+            return;
+        }
+        log.info({ prNumber, sha: mergeResponse.data.sha }, 'Merged no-CI Epic PR after native auto-merge was unavailable');
+    } catch (error) {
+        log.warn({ prNumber, error: (error as Error).message }, 'Failed to evaluate no-CI auto-merge fallback');
+    }
+}
+
 export async function handleNoCodeChanges(options: {
     octokit: Octokit;
     issueRef: IssueJobData;
@@ -320,10 +407,18 @@ export async function handleCreatedPlanIssuePR(options: {
         repoName: issueRef.repoName,
         prNumber,
     });
-    if (autoMergeResult.success) {
+    if (autoMergeResult.success && autoMergeResult.autoMergeEnabled === true) {
         correlatedLogger.info({ prNumber, autoMergeEnabled: autoMergeResult.autoMergeEnabled }, 'Auto-merge enabled successfully');
         return;
     }
 
-    correlatedLogger.warn({ prNumber, error: autoMergeResult.error }, 'Failed to enable auto-merge on PR');
+    correlatedLogger.warn({ prNumber, error: autoMergeResult.error }, autoMergeResult.success
+        ? 'GitHub auto-merge was not enabled on PR'
+        : 'Failed to enable auto-merge on PR');
+    await tryDirectMergeForNoCiEpic({
+        issueRef,
+        labels: currentIssueData.data.labels,
+        prNumber,
+        log: correlatedLogger,
+    });
 }
