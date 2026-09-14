@@ -12,6 +12,7 @@ import { ProviderLogo } from '../../components/ui/ProviderLogo';
 const POLL_INTERVAL_MS = 750;
 const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
 const ACTIVE_STATUSES = new Set(['starting', 'running']);
+const TERMINAL_ENTER = '\r';
 const FOCUSABLE_SELECTOR = [
   'a[href]',
   'button:not([disabled])',
@@ -278,7 +279,7 @@ const AgentLoginModal: React.FC<AgentLoginModalProps> = ({ agent, onClose }) => 
 
   const submitInput = (event: React.FormEvent) => {
     event.preventDefault();
-    void sendTerminalInput(`${input}\n`, true);
+    void sendTerminalInput(`${input}${TERMINAL_ENTER}`, true);
   };
 
   return (
@@ -366,7 +367,7 @@ const AgentLoginModal: React.FC<AgentLoginModalProps> = ({ agent, onClose }) => 
             {[
               { label: '↑', value: '\u001b[A', title: 'Up arrow' },
               { label: '↓', value: '\u001b[B', title: 'Down arrow' },
-              { label: 'Enter', value: '\n', title: 'Enter' },
+              { label: 'Enter', value: TERMINAL_ENTER, title: 'Enter' },
             ].map(key => (
               <button
                 key={key.title}

@@ -63,7 +63,7 @@ describe('AgentLoginModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await waitFor(() => {
-      expect(sendAgentLoginInput).toHaveBeenCalledWith(agent.id, runningSession.id, 'ABCD-1234\n');
+      expect(sendAgentLoginInput).toHaveBeenCalledWith(agent.id, runningSession.id, 'ABCD-1234\r');
     });
   });
 
@@ -108,14 +108,14 @@ describe('AgentLoginModal', () => {
     expect(startAgentLogin).toHaveBeenCalledOnce();
   });
 
-  it('sends a bare Enter for a default terminal choice', async () => {
+  it('sends a carriage return for a default terminal choice', async () => {
     render(<AgentLoginModal agent={agent} onClose={vi.fn()} />);
     await screen.findByText('Waiting for login');
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     await waitFor(() => {
-      expect(sendAgentLoginInput).toHaveBeenCalledWith(agent.id, runningSession.id, '\n');
+      expect(sendAgentLoginInput).toHaveBeenCalledWith(agent.id, runningSession.id, '\r');
     });
   });
 
