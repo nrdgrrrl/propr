@@ -111,6 +111,44 @@ describe('agent login session manager', () => {
     assert.equal(args.some(value => value.includes('ANTHROPIC_API_KEY')), false);
   });
 
+  test('skips the OpenCode provider picker when the default model identifies a provider', () => {
+    const args = buildAgentLoginCreateArgs(
+      agent({
+        id: 'opencode-1',
+        type: 'opencode',
+        alias: 'opencode',
+        configPath: '/tmp/propr-test-opencode',
+        supportedModels: ['opencode-go/deepseek-v4-pro'],
+        defaultModel: 'opencode-go/deepseek-v4-pro',
+      }),
+      AGENT_LOGIN_DESCRIPTORS.opencode,
+      '/tmp/propr-test-opencode',
+      'propr-agent-login-test',
+    );
+
+    assert.deepEqual(args.slice(-5), [
+      'opencode', 'auth', 'login', '--provider', 'opencode-go',
+    ]);
+  });
+
+  test('keeps the OpenCode provider picker for an unqualified default model', () => {
+    const args = buildAgentLoginCreateArgs(
+      agent({
+        id: 'opencode-1',
+        type: 'opencode',
+        alias: 'opencode',
+        configPath: '/tmp/propr-test-opencode',
+        supportedModels: ['opencode-big-pickle'],
+        defaultModel: 'opencode-big-pickle',
+      }),
+      AGENT_LOGIN_DESCRIPTORS.opencode,
+      '/tmp/propr-test-opencode',
+      'propr-agent-login-test',
+    );
+
+    assert.deepEqual(args.slice(-3), ['opencode', 'auth', 'login']);
+  });
+
   test('maps a ProPR-managed account to the managed host root and marks its container ownership as safe to normalize', () => {
     const previousRoot = process.env.PROPR_MANAGED_CREDENTIALS_DIR;
     try {

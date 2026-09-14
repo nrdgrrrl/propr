@@ -162,6 +162,26 @@ export function resolveAgentLoginImage(agent: AgentConfig): string {
   return image;
 }
 
+/**
+ * OpenCode can skip its provider picker when the configured default model
+ * names a provider. Keep the generic picker for unqualified models and for
+ * custom model IDs whose provider cannot be determined safely.
+ */
+function resolveOpenCodeProvider(agent: AgentConfig): string | undefined {
+  if (agent.type !== 'opencode' || !agent.defaultModel) return undefined;
+  let model = agent.defaultModel.trim();
+  if (model.startsWith('opencode:')) model = model.slice('opencode:'.length);
+  if (model.startsWith('opencode-go/')) return 'opencode-go';
+  if (!model.startsWith('opencode-')) return undefined;
+  const provider = model.slice('opencode-'.length).split('/')[0];
+  return model.includes('/') && /^[a-zA-Z0-9_.-]+$/.test(provider) ? provider : undefined;
+}
+
+function resolveAgentLoginCommand(agent: AgentConfig, descriptor: AgentLoginDescriptor): string[] {
+  const provider = resolveOpenCodeProvider(agent);
+  return provider ? [...descriptor.command, '--provider', provider] : [...descriptor.command];
+}
+
 export function buildAgentLoginCreateArgs(
   agent: AgentConfig,
   descriptor: AgentLoginDescriptor,
@@ -202,6 +222,6 @@ export function buildAgentLoginCreateArgs(
     ...environment,
     '-w', CONTAINER_WORKSPACE,
     image,
-    ...descriptor.command,
+    ...resolveAgentLoginCommand(agent, descriptor),
   ];
 }
