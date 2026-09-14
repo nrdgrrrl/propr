@@ -39,13 +39,13 @@ const notificationPreferences = {
   updatedAt: timestamp,
 };
 
-async function stubAiAgentsApis(page: Page): Promise<void> {
+async function stubAiAgentsApis(page: Page, configuredAgents = agents): Promise<void> {
   await page.route('**/api/**', async route => {
     const pathname = new URL(route.request().url()).pathname;
     const responses: Record<string, unknown> = {
       '/api/auth/demo-mode': { demoMode: false },
       '/api/auth/user': user,
-      '/api/config/agents': { agents },
+      '/api/config/agents': { agents: configuredAgents },
       '/api/config/synthetic-agents': { synthetic_agents: [] },
       '/api/config/agent-tank/status': { available: false },
       '/api/notifications/unread-count': { unreadCount: 0 },
@@ -117,4 +117,20 @@ test('keeps the tabbed mobile layout through the app-shell breakpoint', async ({
   await expect(page.getByRole('button', { name: 'Playground' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Agent Configuration' })).toBeHidden();
   await expectNoPageOverflow(page);
+});
+
+test('opens Add Agent with no persisted agents on an insecure-origin-compatible browser', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  await stubAiAgentsApis(page, []);
+  await page.goto('/ai-agents');
+
+  await expect(page.getByText('No agents configured')).toBeVisible();
+  await page.getByRole('button', { name: 'Add Agent' }).first().click();
+  await expect(page.getByText('Add New Agent')).toBeVisible();
+  await expect(page.getByLabel('ID / Alias')).toHaveValue('claude');
 });

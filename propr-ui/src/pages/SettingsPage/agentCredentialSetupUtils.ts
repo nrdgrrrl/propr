@@ -12,6 +12,27 @@ import {
 export type AgentFormData = Omit<AgentConfig, 'id'> & { id?: string };
 export type CredentialSetup = 'login' | 'existing';
 
+function generateAgentId(): string {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+
+  // `crypto.randomUUID()` is unavailable on insecure non-loopback origins,
+  // including a browser visiting the LAN HTTP UI. `getRandomValues()` remains
+  // available there, so keep agent creation compatible with that deployment.
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
+  // This is only an identifier, not a credential or authorization value.
+  return `agent-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
 export function updateModelReasoningLevel(
   formData: AgentFormData,
   modelId: string,
@@ -58,7 +79,7 @@ export function buildAgentConfig(formData: AgentFormData): AgentConfig {
   const cliVersionType = formData.cliVersionType || 'default';
   return {
     ...formData,
-    id: formData.id || crypto.randomUUID(),
+    id: formData.id || generateAgentId(),
     modelCustomLabels: Object.keys(modelCustomLabels).length > 0 ? modelCustomLabels : undefined,
     modelReasoningLevels: Object.keys(modelReasoningLevels).length > 0 ? modelReasoningLevels : undefined,
     envVars: Object.keys(envVars).length > 0 ? envVars : undefined,
@@ -68,7 +89,7 @@ export function buildAgentConfig(formData: AgentFormData): AgentConfig {
 }
 
 export function createNewAgentFormData(): AgentFormData {
-  const id = crypto.randomUUID();
+  const id = generateAgentId();
   return {
     id,
     type: 'claude',
