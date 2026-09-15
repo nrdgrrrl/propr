@@ -36,7 +36,7 @@ describe('running Docker task container lookup', () => {
             assert.ok(scoped.includes('/srv/propr-alt-temp/claude-logs:/tmp/claude-logs:rw'));
             assert.ok(scoped.includes('/srv/propr-alt-temp/propr-vibe-prompts/vibe-prompt-1/prompt.txt:/home/node/prompt.txt:ro'));
 
-            process.env.PROPR_STACK = 'propr-main';
+        process.env.PROPR_STACK = 'propr-main';
             delete process.env.PROPR_HOST_TEMP_ROOT;
             const existingMain = resolveExecutionArgs('docker', [
                 'run', '--rm', '--name', 'claude-issue-17-task-id',
@@ -62,10 +62,10 @@ describe('running Docker task container lookup', () => {
         }
     });
 
-    test('always scopes named-stack discovery and skips ambiguous legacy suffix discovery', async () => {
+    test('scopes named-stack discovery and does not treat an unscoped legacy name as a collision', async () => {
         const previousStack = process.env.PROPR_STACK;
         const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
-        process.env.PROPR_STACK = 'propr-eversecure';
+            process.env.PROPR_STACK = 'propr-main';
         delete process.env.PROPR_HOST_TEMP_ROOT;
         let receivedArgs: string[] = [];
         let legacyDiscoveryCalled = false;
@@ -82,8 +82,8 @@ describe('running Docker task container lookup', () => {
                 },
             );
 
-            assert.ok(receivedArgs.includes('label=propr.stack=propr-eversecure'));
-            assert.equal(legacyLiveness, 'unavailable');
+            assert.ok(receivedArgs.includes('label=propr.stack=propr-main'));
+            assert.equal(legacyLiveness, 'not_found');
             assert.equal(legacyDiscoveryCalled, false);
         } finally {
             if (previousStack === undefined) delete process.env.PROPR_STACK;

@@ -187,7 +187,9 @@ export async function inspectTaskContainerLivenessForTask(
  */
 export async function inspectLegacyDockerContainerLivenessForTask(taskId: string, executor: typeof executeDockerCommand = executeDockerCommand): Promise<LegacyTaskContainerLiveness> {
     // Suffix matches cannot establish ownership across explicitly named stacks.
-    if (requiresProprStackOwnership()) return 'unavailable';
+    // Exact stack-scoped task labels are checked first; an unscoped legacy name
+    // is not evidence that a child owned by this stack is still running.
+    if (requiresProprStackOwnership()) return 'not_found';
     const shortTaskId = taskId.slice(-8);
     if (!shortTaskId) return 'not_found';
     const escapedSuffix = shortTaskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
