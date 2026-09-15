@@ -206,6 +206,7 @@ export function buildAgentLoginCreateArgs(
     '--name', containerName,
     '--label', 'propr.agent-login=true',
     '--label', `propr.agent-login.scope=${scope}`,
+    '--label', `propr.stack=${scope}`,
     '-i',
     '-t',
     '--security-opt', 'no-new-privileges',

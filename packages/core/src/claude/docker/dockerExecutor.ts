@@ -7,9 +7,8 @@ import {
     abortSpawnedExecution,
     createDockerExecutionState,
     ExecutionAbortedError,
-    getExecutionAbortError,
-    getDockerRunContainerName,
-    getExecutionOwnershipContext,
+    getExecutionAbortError, getProprStack, getDockerRunContainerName,
+    getExecutionOwnershipContext, requiresProprStackOwnership, PROPR_STACK_LABEL,
     resolveExecutionArgs,
 } from './dockerExecutionOwnership.js';
 import {
@@ -105,6 +104,7 @@ export async function findTaskContainer(taskId: string, attemptGenerationOrExecu
         '--filter', `label=propr.task.id=${taskId}`,
         '--filter', `label=propr.task.attempt-generation=${attemptGeneration}`,
     ] : ['--filter', `label=propr.task.id=${taskId}`];
+    if (requiresProprStackOwnership()) filters.push('--filter', `label=${PROPR_STACK_LABEL}=${getProprStack()}`);
 
     try {
         const result = await commandExecutor('docker', [
@@ -147,6 +147,7 @@ export async function inspectTaskContainerLivenessForTask(
         const result = await executor('docker', [
             'ps', '-a',
             '--filter', `label=propr.task.id=${taskId}`,
+            ...(requiresProprStackOwnership() ? ['--filter', `label=${PROPR_STACK_LABEL}=${getProprStack()}`] : []),
             '--format', '{{.ID}}\t{{.Names}}\t{{.State}}',
         ], { timeout: 10000 });
         if (result.exitCode !== 0) {
@@ -185,6 +186,8 @@ export async function inspectTaskContainerLivenessForTask(
  * unrelated task IDs can share the same final eight characters.
  */
 export async function inspectLegacyDockerContainerLivenessForTask(taskId: string, executor: typeof executeDockerCommand = executeDockerCommand): Promise<LegacyTaskContainerLiveness> {
+    // Suffix matches cannot establish ownership across explicitly named stacks.
+    if (requiresProprStackOwnership()) return 'unavailable';
     const shortTaskId = taskId.slice(-8);
     if (!shortTaskId) return 'not_found';
     const escapedSuffix = shortTaskId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -429,7 +432,7 @@ function detectContainerId(
         if (state.containerIdDetected) return;
         try {
             const out = execFileSync('/usr/bin/docker', [
-                'ps',
+                'ps', ...(requiresProprStackOwnership() ? ['--filter', `label=${PROPR_STACK_LABEL}=${getProprStack()}`] : []),
                 '--filter', `volume=${worktreePath}`,
                 '--format', '{{.ID}}:{{.Names}}',
                 '--latest',

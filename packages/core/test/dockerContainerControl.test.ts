@@ -4,6 +4,7 @@ import { beforeEach, mock, test } from 'node:test';
 type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 const dockerCalls: Array<{ file: string; args: string[]; timeout: number }> = [];
+const ownershipInspections: Array<{ file: string; args: string[]; timeout: number }> = [];
 const responses: Array<{ error: Error | null; stdout: string; stderr: string }> = [];
 const execFileMock = mock.fn((
     file: string,
@@ -11,6 +12,15 @@ const execFileMock = mock.fn((
     options: { timeout: number },
     callback: ExecCallback,
 ) => {
+    const ownershipFormat = '{{ with index .Config.Labels "propr.stack" }}{{ . }}{{ end }}';
+    if (args[0] === 'inspect' && args.includes(ownershipFormat)) {
+        ownershipInspections.push({ file, args, timeout: options.timeout });
+        const response = process.env.PROPR_STACK && process.env.PROPR_STACK !== 'propr'
+            ? responses.shift() ?? { error: null, stdout: '', stderr: '' }
+            : { error: null, stdout: 'propr\n', stderr: '' };
+        queueMicrotask(() => callback(response.error, response.stdout, response.stderr));
+        return undefined;
+    }
     dockerCalls.push({ file, args, timeout: options.timeout });
     const response = responses.shift() ?? { error: null, stdout: '', stderr: '' };
     queueMicrotask(() => callback(response.error, response.stdout, response.stderr));
@@ -34,6 +44,7 @@ const { stopDockerContainer, teardownDockerExecution } = await import('../src/cl
 
 beforeEach(() => {
     dockerCalls.length = 0;
+    ownershipInspections.length = 0;
     responses.length = 0;
 });
 
@@ -266,4 +277,69 @@ test('does not retry an absent container when its ID is already known', async ()
     assert.deepEqual(dockerCalls.map(call => call.args), [
         ['rm', '-f', '417758dda147'],
     ]);
+});
+
+test('does not remove a child container carrying another stack ownership label', async () => {
+    const previousStack = process.env.PROPR_STACK;
+    process.env.PROPR_STACK = 'propr-alt';
+    responses.push({ error: null, stdout: 'propr-main\n', stderr: '' });
+    try {
+        await teardownDockerExecution({
+            containerId: 'abcdef123456',
+            attempts: 1,
+            retryDelayMs: 0,
+            deadlineMs: 500,
+        });
+    } finally {
+        if (previousStack === undefined) delete process.env.PROPR_STACK;
+        else process.env.PROPR_STACK = previousStack;
+    }
+
+    assert.deepEqual(dockerCalls, []);
+    assert.deepEqual(ownershipInspections.map(call => call.args), [[
+        'inspect', '--type', 'container',
+        '--format', '{{ with index .Config.Labels "propr.stack" }}{{ . }}{{ end }}',
+        'abcdef123456',
+    ]]);
+});
+
+test('named stacks refuse unlabelled legacy containers during discovery and direct stop', async () => {
+    const previousStack = process.env.PROPR_STACK;
+    const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
+    process.env.PROPR_STACK = 'propr-eversecure';
+    delete process.env.PROPR_HOST_TEMP_ROOT;
+    responses.push(
+        { error: null, stdout: 'legacy-child-id\n', stderr: '' },
+        { error: null, stdout: '', stderr: '' },
+        { error: null, stdout: '', stderr: '' },
+    );
+    try {
+        await teardownDockerExecution({
+            taskId: 'same-task-id',
+            attemptGeneration: 'attempt-one',
+            attempts: 1,
+            retryDelayMs: 0,
+            deadlineMs: 500,
+        });
+        const stopped = await stopDockerContainer('legacy-child-id');
+
+        assert.equal(stopped.success, false);
+        assert.match(stopped.error ?? '', /different ProPR stack \(unlabelled\)/);
+        assert.deepEqual(dockerCalls, [{
+            file: '/usr/bin/docker',
+            args: [
+                'ps', '-aq',
+                '--filter', 'label=propr.task.id=same-task-id',
+                '--filter', 'label=propr.task.attempt-generation=attempt-one',
+                '--filter', 'label=propr.stack=propr-eversecure',
+            ],
+            timeout: 500,
+        }]);
+        assert.equal(ownershipInspections.length, 2);
+    } finally {
+        if (previousStack === undefined) delete process.env.PROPR_STACK;
+        else process.env.PROPR_STACK = previousStack;
+        if (previousTempRoot === undefined) delete process.env.PROPR_HOST_TEMP_ROOT;
+        else process.env.PROPR_HOST_TEMP_ROOT = previousTempRoot;
+    }
 });

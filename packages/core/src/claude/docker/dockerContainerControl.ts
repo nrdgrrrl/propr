@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import logger from '../../utils/logger.js';
+import { getProprStack, requiresProprStackOwnership, PROPR_STACK_LABEL } from './dockerStackIsolation.js';
 
 const DOCKER_PATH = '/usr/bin/docker';
 const CONTAINER_IDENTIFIER_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
@@ -95,10 +96,12 @@ async function findExecutionContainers(
     const containers = new Set<string>();
     if (options.taskId && options.attemptGeneration) {
         try {
+            const stack = getProprStack();
             const output = await runDocker([
                 'ps', '-aq',
                 '--filter', `label=propr.task.id=${options.taskId}`,
                 '--filter', `label=propr.task.attempt-generation=${options.attemptGeneration}`,
+                ...(requiresProprStackOwnership() ? ['--filter', `label=${PROPR_STACK_LABEL}=${stack}`] : []),
             ], timeoutMs);
             for (const id of output.split('\n').map(value => value.trim()).filter(Boolean)) {
                 containers.add(id);
@@ -121,6 +124,7 @@ async function findExecutionContainers(
 interface ContainerRemovalResult {
     failed: Set<string>;
     notFound: Set<string>;
+    foreign: Set<string>;
 }
 
 function hasCompletedContainerRemoval(
@@ -135,17 +139,54 @@ function hasCompletedContainerRemoval(
     const onlyContainerNameAvailable = !hasGenerationFence && !options.containerId && Boolean(options.containerName);
     return !onlyContainerNameAvailable
         || !options.containerName
-        || !removal.notFound.has(options.containerName);
+        || !removal.notFound.has(options.containerName)
+        || removal.foreign.has(options.containerName);
+}
+
+async function inspectContainerStack(
+    containerId: string,
+    timeoutMs: number,
+): Promise<{ stack?: string; missing?: boolean; error?: string }> {
+    try {
+        const output = await runDocker([
+            'inspect', '--type', 'container', '--format', `{{ with index .Config.Labels "${PROPR_STACK_LABEL}" }}{{ . }}{{ end }}`, containerId,
+        ], timeoutMs);
+        return { stack: output.trim() };
+    } catch (error) {
+        const message = (error as Error).message;
+        if (message.includes('No such container') || message.includes('No such object')) return { missing: true };
+        return { error: message };
+    }
 }
 
 async function removeExecutionContainers(containers: Set<string>, deadline: number): Promise<ContainerRemovalResult> {
     const failed = new Set<string>();
     const notFound = new Set<string>();
+    const foreign = new Set<string>();
+    const expectedStack = getProprStack();
     for (const container of containers) {
         if (!CONTAINER_IDENTIFIER_PATTERN.test(container)) continue;
         const removalBudgetMs = Math.min(2000, deadline - Date.now());
         if (removalBudgetMs <= 0) {
             failed.add(container);
+            continue;
+        }
+        const ownership = await inspectContainerStack(container, Math.min(1000, removalBudgetMs));
+        if (ownership.missing) {
+            notFound.add(container);
+            continue;
+        }
+        if (ownership.error) {
+            failed.add(container);
+            logger.warn({ containerId: container, error: ownership.error }, 'Could not verify Docker container stack ownership before removal');
+            continue;
+        }
+        // The legacy default stack may still clean up unlabelled children.
+        // Named stacks require an explicit matching owner label.
+        const unlabelledLegacyDefaultContainer = !requiresProprStackOwnership() && !ownership.stack;
+        if (ownership.stack !== expectedStack && !unlabelledLegacyDefaultContainer) {
+            foreign.add(container);
+            logger.warn({ containerId: container, expectedStack, actualStack: ownership.stack }, 'Skipped Docker container owned by another ProPR stack');
             continue;
         }
         try {
@@ -160,7 +201,7 @@ async function removeExecutionContainers(containers: Set<string>, deadline: numb
             }
         }
     }
-    return { failed, notFound };
+    return { failed, notFound, foreign };
 }
 
 async function retryExecutionContainerRemoval(
@@ -241,6 +282,17 @@ export async function stopDockerContainer(
 
     logger.info({ containerId, timeoutSeconds }, 'Attempting to stop Docker container');
     try {
+        const stack = getProprStack();
+        const ownership = await inspectContainerStack(containerId, 5000);
+        if (ownership.missing) {
+            logger.info({ containerId }, 'Container no longer exists');
+            return { success: true };
+        }
+        if (ownership.error) return { success: false, error: ownership.error };
+        const unlabelledLegacyDefaultContainer = !requiresProprStackOwnership() && !ownership.stack;
+        if (ownership.stack !== stack && !unlabelledLegacyDefaultContainer) {
+            return { success: false, error: `Container is owned by a different ProPR stack (${ownership.stack || 'unlabelled'})` };
+        }
         let statusOutput: string | undefined;
         try {
             statusOutput = (await runDocker([

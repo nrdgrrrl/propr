@@ -7,12 +7,92 @@ import {
     inspectTaskContainerLivenessForTask,
     type ExecutionResult,
 } from '../packages/core/src/claude/docker/dockerExecutor.js';
+import { resolveExecutionArgs } from '../packages/core/src/claude/docker/dockerExecutionOwnership.js';
 
 function result(stdout: string, exitCode = 0, stderr = ''): ExecutionResult {
     return { stdout, stderr, exitCode, messageTimestamps: new Map() };
 }
 
 describe('running Docker task container lookup', () => {
+    test('scopes child runs and host bind sources for named stacks while preserving default paths', () => {
+        const previousStack = process.env.PROPR_STACK;
+        const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
+        try {
+            process.env.PROPR_STACK = 'propr-alt';
+            process.env.PROPR_HOST_TEMP_ROOT = '/srv/propr-alt-temp';
+            const scoped = resolveExecutionArgs('docker', [
+                'run', '--rm', '--name', 'claude-issue-17-task-id',
+                '-v', '/tmp/pr-worktrees/acme/repo:/home/node/workspace:rw',
+                '-v', '/tmp/git-processor:/tmp/git-processor:ro',
+                '-v', '/tmp/claude-logs:/tmp/claude-logs:rw',
+                '-v', '/tmp/propr-vibe-prompts/vibe-prompt-1/prompt.txt:/home/node/prompt.txt:ro',
+                'agent-image',
+            ], 'task-id', 'generation-id');
+
+            assert.ok(scoped.includes('propr.stack=propr-alt'));
+            assert.ok(scoped.includes('propr-alt-claude-issue-17-task-id'));
+            assert.ok(scoped.includes('/srv/propr-alt-temp/pr-worktrees/acme/repo:/home/node/workspace:rw'));
+            assert.ok(scoped.includes('/srv/propr-alt-temp/git-processor:/tmp/git-processor:ro'));
+            assert.ok(scoped.includes('/srv/propr-alt-temp/claude-logs:/tmp/claude-logs:rw'));
+            assert.ok(scoped.includes('/srv/propr-alt-temp/propr-vibe-prompts/vibe-prompt-1/prompt.txt:/home/node/prompt.txt:ro'));
+
+            process.env.PROPR_STACK = 'propr-main';
+            delete process.env.PROPR_HOST_TEMP_ROOT;
+            const existingMain = resolveExecutionArgs('docker', [
+                'run', '--rm', '--name', 'claude-issue-17-task-id',
+                '-v', '/tmp/git-processor:/tmp/git-processor:rw', 'agent-image',
+            ], undefined, undefined);
+            assert.ok(existingMain.includes('propr.stack=propr-main'));
+            assert.ok(existingMain.includes('propr-main-claude-issue-17-task-id'));
+            assert.ok(existingMain.includes('/tmp/git-processor:/tmp/git-processor:rw'));
+
+            delete process.env.PROPR_STACK;
+            const legacy = resolveExecutionArgs('docker', [
+                'run', '--rm', '--name', 'claude-issue-17-task-id',
+                '-v', '/tmp/git-processor:/tmp/git-processor:rw', 'agent-image',
+            ], undefined, undefined);
+            assert.ok(legacy.includes('propr.stack=propr'));
+            assert.ok(legacy.includes('claude-issue-17-task-id'));
+            assert.ok(legacy.includes('/tmp/git-processor:/tmp/git-processor:rw'));
+        } finally {
+            if (previousStack === undefined) delete process.env.PROPR_STACK;
+            else process.env.PROPR_STACK = previousStack;
+            if (previousTempRoot === undefined) delete process.env.PROPR_HOST_TEMP_ROOT;
+            else process.env.PROPR_HOST_TEMP_ROOT = previousTempRoot;
+        }
+    });
+
+    test('always scopes named-stack discovery and skips ambiguous legacy suffix discovery', async () => {
+        const previousStack = process.env.PROPR_STACK;
+        const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
+        process.env.PROPR_STACK = 'propr-eversecure';
+        delete process.env.PROPR_HOST_TEMP_ROOT;
+        let receivedArgs: string[] = [];
+        let legacyDiscoveryCalled = false;
+        try {
+            await findTaskContainer('same-task-id', async (_command, args) => {
+                receivedArgs = args;
+                return result('');
+            });
+            const legacyLiveness = await inspectLegacyDockerContainerLivenessForTask(
+                'same-task-id',
+                async () => {
+                    legacyDiscoveryCalled = true;
+                    return result('abcdef123456:legacy-child\n');
+                },
+            );
+
+            assert.ok(receivedArgs.includes('label=propr.stack=propr-eversecure'));
+            assert.equal(legacyLiveness, 'unavailable');
+            assert.equal(legacyDiscoveryCalled, false);
+        } finally {
+            if (previousStack === undefined) delete process.env.PROPR_STACK;
+            else process.env.PROPR_STACK = previousStack;
+            if (previousTempRoot === undefined) delete process.env.PROPR_HOST_TEMP_ROOT;
+            else process.env.PROPR_HOST_TEMP_ROOT = previousTempRoot;
+        }
+    });
+
     test('finds a running container by the exact task label', async () => {
         let receivedArgs: string[] = [];
         const executor = async (_command: string, args: string[]) => {

@@ -223,7 +223,7 @@ export class AgentLoginSessionManager {
       'ps',
       '-aq',
       '--filter', 'label=propr.agent-login=true',
-      '--filter', `label=propr.agent-login.scope=${this.scope}`,
+      '--filter', this.scope === 'propr' ? `label=propr.agent-login.scope=${this.scope}` : `label=propr.stack=${this.scope}`,
     ]);
     const containerIds = stdout
       .split(/\s+/)
@@ -243,7 +243,7 @@ export class AgentLoginSessionManager {
     if (this.activeCredentialPaths.has(credentialPath)) throw new AgentLoginConflictError();
 
     const id = this.id();
-    const containerName = `propr-agent-login-${id.replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 48)}`;
+    const containerName = `${this.scope === 'propr' ? '' : `${this.scope}-`}propr-agent-login-${id.replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 48)}`.slice(0, 128);
     const timestamp = this.now();
     const session: AgentLoginSession = {
       id,

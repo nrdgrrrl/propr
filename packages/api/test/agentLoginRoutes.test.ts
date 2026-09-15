@@ -68,9 +68,9 @@ function responseRecorder() {
 
 const managers: AgentLoginSessionManager[] = [];
 
-function managerWith(child: ChildProcessWithoutNullStreams, dockerCalls: string[][] = []) {
+function managerWith(child: ChildProcessWithoutNullStreams, dockerCalls: string[][] = [], scope = 'propr') {
   const manager = new AgentLoginSessionManager({
-    id: () => 'session-1',
+    id: () => 'session-1', scope,
     runDocker: async args => {
       dockerCalls.push(args);
       return { stdout: '', stderr: '' };
@@ -107,6 +107,7 @@ describe('agent login session manager', () => {
     assert.deepEqual(args.slice(-3), ['codex', 'login', '--device-auth']);
     assert.ok(args.includes(`${defaultCodexConfigPath}:/home/node/.codex:rw`));
     assert.ok(args.includes('PROPR_AGENT_TYPE=codex'));
+    assert.ok(args.includes('propr.stack=propr'));
     assert.equal(args.some(value => value.includes('GH_TOKEN')), false);
     assert.equal(args.some(value => value.includes('ANTHROPIC_API_KEY')), false);
   });
@@ -171,6 +172,7 @@ describe('agent login session manager', () => {
       );
       assert.ok(args.includes('PROPR_MANAGED_CREDENTIALS=1'));
       assert.ok(args.includes('propr.agent-login.scope=test-stack'));
+      assert.ok(args.includes('propr.stack=test-stack'));
     } finally {
       if (previousRoot === undefined) delete process.env.PROPR_MANAGED_CREDENTIALS_DIR;
       else process.env.PROPR_MANAGED_CREDENTIALS_DIR = previousRoot;
@@ -290,13 +292,13 @@ describe('agent login session manager', () => {
       stdin += chunk.toString();
     });
     const dockerCalls: string[][] = [];
-    const manager = managerWith(child, dockerCalls);
+    const manager = managerWith(child, dockerCalls, 'propr-eversecure');
 
     const started = await manager.start(agent(), 'owner');
     assert.equal(started.status, 'running');
     assert.deepEqual(dockerCalls[0], ['image', 'inspect', 'propr/agent:test']);
     assert.equal(dockerCalls[1][0], 'create');
-    assert.deepEqual(dockerCalls[2], ['start', '-a', '-i', 'propr-agent-login-session-1']);
+    assert.deepEqual(dockerCalls[2], ['start', '-a', '-i', 'propr-eversecure-propr-agent-login-session-1']);
 
     (child.stdout as PassThrough).write('\u001b[');
     (child.stdout as PassThrough).write('32mOpen https://example.test/device\u001b[0m\r');
@@ -392,10 +394,11 @@ describe('agent login session manager', () => {
       'ps',
       '-aq',
       '--filter', 'label=propr.agent-login=true',
-      '--filter', 'label=propr.agent-login.scope=stack-a',
+      '--filter', 'label=propr.stack=stack-a',
     ]);
     assert.deepEqual(dockerCalls[1], ['rm', '-f', 'abcdef123456', '123456abcdef']);
   });
+
 });
 
 describe('agent login routes', () => {

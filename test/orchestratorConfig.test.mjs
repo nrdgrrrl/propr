@@ -138,6 +138,42 @@ test('api service receives the configured stack env file', () => {
   assert.equal(args[envFileIndex + 1], envFile);
 });
 
+test('temporary host paths keep legacy defaults when the optional root is unset', () => {
+  const cfg = resolveConfig({}, { manifestPath });
+
+  assert.equal(cfg.hostTempRoot, undefined);
+  assert.ok(buildServiceSpec(cfg, 'worker').args.includes('/tmp/git-processor:/tmp/git-processor'));
+  assert.ok(buildServiceSpec(cfg, 'worker').args.includes('/tmp/claude-logs:/tmp/claude-logs'));
+  assert.ok(buildServiceSpec(cfg, 'daemon').args.includes('/tmp/pr-worktrees:/tmp/pr-worktrees'));
+  assert.ok(!buildServiceSpec(cfg, 'worker').args.some(value => value.startsWith('PROPR_HOST_TEMP_ROOT=')));
+});
+
+test('configured host temp root maps the four host directories while preserving service paths', () => {
+  const cfg = resolveConfig({
+    PROPR_STACK: 'propr-alt',
+    PROPR_HOST_TEMP_ROOT: '/srv/propr-alt-temp',
+    MISTRAL_API_KEY: 'test-key',
+  }, { manifestPath });
+  const workerArgs = buildServiceSpec(cfg, 'worker').args;
+  const daemonArgs = buildServiceSpec(cfg, 'daemon').args;
+  const apiArgs = buildServiceSpec(cfg, 'api').args;
+
+  assert.equal(cfg.hostTempRoot, '/srv/propr-alt-temp');
+  assert.ok(workerArgs.includes('/srv/propr-alt-temp/git-processor:/tmp/git-processor'));
+  assert.ok(workerArgs.includes('/srv/propr-alt-temp/claude-logs:/tmp/claude-logs'));
+  assert.ok(workerArgs.includes('/srv/propr-alt-temp/propr-vibe-prompts:/tmp/propr-vibe-prompts'));
+  assert.ok(daemonArgs.includes('/srv/propr-alt-temp/pr-worktrees:/tmp/pr-worktrees'));
+  assert.ok(apiArgs.includes('/srv/propr-alt-temp/pr-worktrees:/tmp/pr-worktrees'));
+  assert.deepEqual(envValues(workerArgs, 'PROPR_HOST_TEMP_ROOT'), ['/srv/propr-alt-temp']);
+});
+
+test('rejects a host temp root that is invalid or collides with the shared /tmp tree', () => {
+  for (const value of ['relative/path', '/tmp']) {
+    const errors = validateEnv(resolveConfig({ PROPR_HOST_TEMP_ROOT: value }, { manifestPath })).errors;
+    assert.ok(errors.some(error => error.includes('PROPR_HOST_TEMP_ROOT')));
+  }
+});
+
 test('launcher derives and mounts managed agent credentials without another host-path setting', () => {
   const rootDir = mkdtempSync(join(tmpdir(), 'propr-orch-'));
   const envFileLocal = join(rootDir, '.env');

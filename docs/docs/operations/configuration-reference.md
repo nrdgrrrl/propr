@@ -105,6 +105,8 @@ Unified image selection, per-agent credential paths, and execution limits. Codin
 | `HOST_OPENCODE_DATA_DIR` | Unset | Host path to existing OpenCode auth data (`~/.local/share/opencode`), so `opencode auth login` credentials reach spawned agent containers. Managed accounts keep their own isolated data directory. | Reusing OpenCode host auth via launcher. |
 | `VIBE_PROMPT_CACHE_DIR` / `HOST_VIBE_PROMPT_CACHE_DIR` | Container `/tmp/propr-vibe-prompts`; host `/tmp/propr-vibe-prompts-<uid>` | Vibe Docker-outside-Docker writes prompt files to a host-visible directory so spawned containers can bind-mount them. Set both only to override the locations. | Optional. |
 
+When `PROPR_HOST_TEMP_ROOT` is set, it takes precedence for the host-side Vibe prompt cache at `<root>/propr-vibe-prompts`; `VIBE_PROMPT_CACHE_DIR` continues to control its in-container path.
+
 ## Workers & Queue
 
 Queue and worker behavior; see [Worker Runtime](../architecture/worker-runtime.md) for how jobs flow through it.
@@ -120,6 +122,7 @@ Queue and worker behavior; see [Worker Runtime](../architecture/worker-runtime.m
 | `SUMMARIZATION_QUOTA_COOLDOWN_MS` | `3600000` (1 hour) | Pauses normal summarization jobs for a repository/branch after both primary and fallback paths fail. | Optional. |
 | `SYSTEM_TASK_SECRET` | Empty | Signs system task requests (for example revert operations). Generate with `openssl rand -hex 32`. | System tasks (reverts). |
 | `SYSTEM_TASK_TOKEN_MAX_AGE_MS` | `7200000` (2 hours) | Maximum age for signed system task tokens. Increase if jobs expire due to queue backlog or worker downtime. | Optional. |
+| `PROPR_HOST_TEMP_ROOT` | Unset | Host-only root for child-container temp bind sources. With `/srv/propr-alt`, `/tmp/git-processor` maps from `/srv/propr-alt/git-processor` while remaining `/tmp/git-processor` inside ProPR and agent containers. Also scopes `/tmp/pr-worktrees`, `/tmp/claude-logs`, and `/tmp/propr-vibe-prompts`. Set a distinct `PROPR_STACK` for each concurrent instance. | Multiple ProPR stacks sharing a host. |
 | `GIT_CLONES_BASE_PATH` | `/tmp/git-processor/clones` | Where workers keep repository clones. | Optional. |
 | `GIT_WORKTREES_BASE_PATH` | `/tmp/git-processor/worktrees` | Where workers create per-job worktrees. | Optional. |
 | `GIT_DEFAULT_BRANCH` | `main` | Default base branch for PRs. Per-repo overrides use `GIT_DEFAULT_BRANCH_<OWNER>_<REPO>` — see [Branch Configuration](../features/branch-config.md). | Optional. |
