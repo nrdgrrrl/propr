@@ -214,19 +214,24 @@ function resolveAgentPrefixedLabel(
     lowerLabel: string,
     agents: { config: AgentConfig }[]
 ): LlmLabelResolution | null {
-    for (const agent of agents) {
+    // Prefer the most specific configured alias. For example, when both
+    // "claude" and "claude-vholowiski" are configured, the latter owns
+    // "claude-vholowiski-sonnet5".
+    const aliasMatches = agents
+        .filter(agent => lowerLabel.startsWith(`${agent.config.alias.toLowerCase()}-`))
+        .sort((a, b) => b.config.alias.length - a.config.alias.length);
+
+    for (const agent of aliasMatches) {
         const aliasLower = agent.config.alias.toLowerCase();
-        if (lowerLabel.startsWith(aliasLower + '-')) {
-            const modelPart = label.substring(aliasLower.length + 1); // e.g., "pro" from "gemini-pro"
-            const matchedModel = findMatchingModel(modelPart, agent.config);
-            if (!matchedModel && agent.config.type === 'opencode') {
-                continue;
-            }
-            return {
-                agentAlias: agent.config.alias,
-                model: matchedModel || agent.config.defaultModel || getPreferredModelForAgent(agent.config) || agent.config.supportedModels[0]
-            };
+        const modelPart = label.substring(aliasLower.length + 1); // e.g., "pro" from "gemini-pro"
+        const matchedModel = findMatchingModel(modelPart, agent.config);
+        if (!matchedModel && agent.config.type === 'opencode') {
+            continue;
         }
+        return {
+            agentAlias: agent.config.alias,
+            model: matchedModel || agent.config.defaultModel || getPreferredModelForAgent(agent.config) || agent.config.supportedModels[0]
+        };
     }
 
     return null;
@@ -296,21 +301,24 @@ async function resolveLlmLabel(label: string): Promise<LlmLabelResolution> {
         return githubLabelMatch;
     }
 
-    // Check generated "agentType-modelAlias" labels even when the configured
-    // agent alias is different from the built-in type name.
-    const agentTypePrefixMatch = resolveByAgentTypePrefix(label, agents);
-    if (agentTypePrefixMatch) {
-        return agentTypePrefixMatch;
-    }
-
     const agentAliasMatch = resolveAgentAliasLabel(lowerLabel, agents);
     if (agentAliasMatch) {
         return agentAliasMatch;
     }
 
+    // Account aliases such as "claude-vholowiski" can themselves start with
+    // an agent type. Resolve the configured alias first so its suffix is only
+    // the model alias ("sonnet5"), never part of the provider model ID.
     const agentPrefixMatch = resolveAgentPrefixedLabel(label, lowerLabel, agents);
     if (agentPrefixMatch) {
         return agentPrefixMatch;
+    }
+
+    // Keep supporting generated "agentType-modelAlias" labels when no
+    // configured account alias matched.
+    const agentTypePrefixMatch = resolveByAgentTypePrefix(label, agents);
+    if (agentTypePrefixMatch) {
+        return agentTypePrefixMatch;
     }
 
     const staticAliasMatch = resolveStaticModelAliasLabel(lowerLabel, agents);
