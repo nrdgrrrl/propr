@@ -274,7 +274,20 @@ export class AgentRegistry {
             return defaultAgent;
         }
 
-        // No default agent configured — return undefined so callers handle the error explicitly
+        // A stale settings alias should not strand a healthy enabled agent.
+        // This can occur briefly while an agents update is propagating between
+        // the API and worker processes; use the first registered agent until
+        // the settings and registry converge.
+        const firstAvailableAgent = this.agents.values().next().value as Agent | undefined;
+        if (firstAvailableAgent) {
+            logger.warn({
+                configuredDefaultAgent: this.defaultAgentAlias,
+                fallbackAgent: firstAvailableAgent.config.alias,
+            }, 'Configured default agent is unavailable; using first enabled agent');
+            return firstAvailableAgent;
+        }
+
+        // No enabled agent configured — callers handle the error explicitly.
         return undefined;
     }
 
