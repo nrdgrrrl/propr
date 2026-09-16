@@ -126,7 +126,10 @@ export function resolveExecutionArgs(
     attemptGeneration: string | undefined,
 ): string[] {
     if (command !== 'docker') return args;
-    const stackScopedArgs = addProprStackOwnershipToDockerRunArgs(args);
+    const initArgs = args[0] === 'run' && !args.includes('--init')
+        ? ['run', '--init', ...args.slice(1)]
+        : args;
+    const stackScopedArgs = addProprStackOwnershipToDockerRunArgs(initArgs);
     return addTaskAttemptLabelsToDockerArgs(stackScopedArgs, taskId, attemptGeneration);
 }
 

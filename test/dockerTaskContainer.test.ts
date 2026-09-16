@@ -62,6 +62,19 @@ describe('running Docker task container lookup', () => {
         }
     });
 
+    test('enables Docker init for every protected run without duplicating an existing flag', () => {
+        const withInit = resolveExecutionArgs('docker', [
+            'run', '--rm', '--name', 'agent-task', 'agent-image',
+        ], undefined, undefined);
+        assert.equal(withInit.filter(arg => arg === '--init').length, 1);
+        assert.ok(withInit.includes('propr.stack=propr'));
+
+        const alreadyInitialized = resolveExecutionArgs('docker', [
+            'run', '--init', '--rm', '--name', 'agent-task', 'agent-image',
+        ], undefined, undefined);
+        assert.equal(alreadyInitialized.filter(arg => arg === '--init').length, 1);
+    });
+
     test('scopes named-stack discovery and does not treat an unscoped legacy name as a collision', async () => {
         const previousStack = process.env.PROPR_STACK;
         const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
