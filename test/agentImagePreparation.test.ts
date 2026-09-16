@@ -4,6 +4,8 @@ import type { AgentCliVersionMatrix } from '../packages/core/src/agents/version/
 
 let imageChecks = 0;
 let pulls = 0;
+let builds = 0;
+let pullSucceeds = true;
 let releasePull: (() => void) | undefined;
 const pullGate = new Promise<void>(resolve => {
     releasePull = resolve;
@@ -19,11 +21,30 @@ await mock.module('../packages/core/src/claude/docker/dockerExecutor.js', {
             }
             if (args[0] === 'pull') {
                 pulls += 1;
+                if (!pullSucceeds) {
+                    return { exitCode: 1, stdout: '', stderr: 'not found', messageTimestamps: new Map() };
+                }
                 await pullGate;
                 return { exitCode: 0, stdout: 'pulled', stderr: '', messageTimestamps: new Map() };
             }
+            if (args[0] === 'build') {
+                builds += 1;
+                return { exitCode: 0, stdout: 'built', stderr: '', messageTimestamps: new Map() };
+            }
             throw new Error(`Unexpected Docker command: ${args.join(' ')}`);
         }),
+    },
+});
+
+await mock.module('../packages/core/src/agents/agentImageBuildCapacity.js', {
+    namedExports: {
+        assertAgentImageBuildCapacity: mock.fn(async () => undefined),
+    },
+});
+
+await mock.module('../packages/core/src/agents/agentImageBuildLock.js', {
+    namedExports: {
+        withAgentImageBuildSlot: mock.fn(async <T>(operation: () => Promise<T>) => operation()),
     },
 });
 
@@ -59,4 +80,20 @@ test('worker-owned image preparation uses one deterministic job identity per ima
         agentImagePreparationJobId('propr/runtime-agent:one'),
         agentImagePreparationJobId('propr/runtime-agent:two'),
     );
+});
+
+test('missing bundle preparation continues when worker cannot inspect Docker storage', async () => {
+    pullSucceeds = false;
+    const versions: AgentCliVersionMatrix = {
+        claude: '2.0.0',
+        codex: '2.0.0',
+        antigravity: '2.0.0',
+        opencode: '2.0.0',
+        vibe: '2.0.0',
+    };
+
+    const result = await ensureAgentBundleImage(versions, 'capacity-unavailable', process.cwd());
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(builds, 1);
 });

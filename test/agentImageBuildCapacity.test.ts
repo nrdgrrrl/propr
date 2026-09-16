@@ -106,6 +106,16 @@ test('Docker-root discovery failure fails closed without statfs or build work', 
     assert.strictEqual(statfsCalled, false);
 });
 
+test('Docker storage path unavailable in the worker is reported as unchecked', async () => {
+    const unavailable = Object.assign(new Error('statfs /var/lib/docker: no such file or directory'), { code: 'ENOENT' });
+    const diskSpace = await assertAgentImageBuildCapacity({
+        getDockerRootDir: async () => '/var/lib/docker',
+        readDiskSpace: async () => { throw unavailable; },
+    });
+
+    assert.strictEqual(diskSpace, undefined);
+});
+
 test('agent image disk pressure detection recognizes Docker ENOSPC failures', () => {
     assert.strictEqual(isAgentImageDiskPressureError(new Error('write /var/lib/docker: no space left on device')), true);
     assert.strictEqual(isAgentImageDiskPressureError(new Error('temporary registry timeout')), false);

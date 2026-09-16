@@ -57,8 +57,11 @@ export class AgentImageBuildStorageError extends Error {
 /**
  * Docker image/build storage can be separate from the ProPR application
  * filesystem. Query Docker's daemon root through its info API and statfs that
- * path. If the daemon root cannot be resolved, fail closed: falling back to
- * PROPR_ROOT or cwd could approve a build while Docker's filesystem is full.
+ * path. The daemon root is a host path and may not be mounted in the worker
+ * container, so an ENOENT from the filesystem probe means capacity is
+ * unavailable to this process rather than that the filesystem is full. Other
+ * inspection failures still fail closed: falling back to PROPR_ROOT or cwd
+ * could approve a build while Docker's filesystem is full.
  */
 export async function readAgentImageBuildDiskSpace(
     rootPath: string,
@@ -75,7 +78,7 @@ export async function assertAgentImageBuildCapacity(options: {
     minFreeInodes?: number;
     readDiskSpace?: (rootPath: string) => Promise<AgentImageBuildDiskSpace>;
     getDockerRootDir?: () => Promise<string>;
-} = {}): Promise<AgentImageBuildDiskSpace> {
+} = {}): Promise<AgentImageBuildDiskSpace | undefined> {
     const minFreeBytes = options.minFreeBytes ?? AGENT_IMAGE_BUILD_MIN_FREE_BYTES;
     const minFreeInodes = options.minFreeInodes ?? AGENT_IMAGE_BUILD_MIN_FREE_INODES;
     let dockerRootDir: string;
@@ -87,11 +90,24 @@ export async function assertAgentImageBuildCapacity(options: {
     if (!dockerRootDir.trim()) {
         throw new AgentImageBuildStorageError(new Error('Docker info returned an empty DockerRootDir'));
     }
-    const diskSpace = await (options.readDiskSpace ?? readAgentImageBuildDiskSpace)(dockerRootDir);
+    let diskSpace: AgentImageBuildDiskSpace;
+    try {
+        diskSpace = await (options.readDiskSpace ?? readAgentImageBuildDiskSpace)(dockerRootDir);
+    } catch (error) {
+        if (isErrorCode(error, 'ENOENT')) return undefined;
+        throw new AgentImageBuildStorageError(error);
+    }
     if (diskSpace.availableBytes < minFreeBytes || diskSpace.freeInodes < minFreeInodes) {
         throw new AgentImageBuildCapacityError(diskSpace, minFreeBytes, minFreeInodes);
     }
     return diskSpace;
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+    return typeof error === 'object'
+        && error !== null
+        && 'code' in error
+        && (error as { code?: unknown }).code === code;
 }
 
 export function isAgentImageDiskPressureError(error: unknown): boolean {

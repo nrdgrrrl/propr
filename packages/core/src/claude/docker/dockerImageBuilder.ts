@@ -77,7 +77,13 @@ async function buildBundle(
         if (await agentDockerImageExists(imageTag) || await pullImage(imageTag)) {
             return { success: true, imageTag };
         }
-        await assertAgentImageBuildCapacity();
+        const capacity = await assertAgentImageBuildCapacity();
+        if (!capacity) {
+            logger.warn(
+                { imageTag, dockerfile },
+                'Docker image storage capacity is unavailable from the worker container; proceeding with agent image preparation',
+            );
+        }
         logger.info({ imageTag, versions, dockerfile }, 'Building unified agent Docker image...');
         const result = await executeDockerCommand('docker', [
             'build',
