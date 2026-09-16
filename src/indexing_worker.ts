@@ -7,10 +7,11 @@ import type { IndexingJobData, JobResult } from '@propr/core';
 import { logger } from '@propr/core';
 import { generateCorrelationId } from '@propr/core';
 import { db } from '@propr/core';
-import { indexRepo, updateRepositoryStatus } from '@propr/core';
+import { indexRepo, publishIndexingStatus, updateRepositoryStatus } from '@propr/core';
 import { loadSummarizationSettings, loadMonitoredReposRaw } from '@propr/core';
 import type { RepoToMonitor } from '@propr/core';
 import { ensureRepoCloned, getRepoUrl, getAuthenticatedOctokit, fetchLatestChanges } from '@propr/core';
+import { hasPendingIndexingRetry } from './indexingRetryStatus.ts';
 
 process.on('uncaughtException', (error: Error) => {
     logger.fatal({ error: error.message, stack: error.stack }, 'Uncaught exception in indexing worker');
@@ -349,6 +350,30 @@ async function startIndexingWorker(): Promise<Worker<IndexingJobData, IndexingRe
     worker.on('failed', async (job, error) => {
         if (job?.data?.repository) {
             const branch = job.data.baseBranch || 'HEAD';
+
+            if (hasPendingIndexingRetry(job.attemptsMade, job.opts.attempts ?? 1)) {
+                logger.warn(
+                    {
+                        repository: job.data.repository,
+                        branch,
+                        attemptsMade: job.attemptsMade,
+                        maxAttempts: job.opts.attempts ?? 1,
+                        error: error.message
+                    },
+                    'Indexing attempt failed; preserving indexing status for BullMQ retry'
+                );
+                try {
+                    await updateRepositoryStatus(job.data.repository, 'indexing', branch);
+                    await publishIndexingStatus(job.data.repository, branch, 'indexing');
+                } catch (updateError) {
+                    logger.error(
+                        { repository: job.data.repository, branch, error: (updateError as Error).message },
+                        'Failed to preserve repository indexing status for retry'
+                    );
+                }
+                return;
+            }
+
             logger.error(
                 { repository: job.data.repository, branch, error: error.message },
                 'Indexing job failed, marking repository as failed'
