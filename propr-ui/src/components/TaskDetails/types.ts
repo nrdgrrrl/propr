@@ -21,6 +21,7 @@ export interface UsageMetrics {
 
 export interface HistoryItemMetadata {
   model?: string;
+  claudeResult?: { success?: boolean };
   pr?: { url?: string; number?: number };
   pullRequest?: { url?: string; number?: number };
   description?: string;

@@ -28,7 +28,7 @@ const getDisplayLabel = (item: HistoryItem, index: number, history: HistoryItem[
   return item.state?.replace(/_/g, ' ').toLowerCase() || '';
 };
 
-const getClaudeExecutionLabel = (item: HistoryItem, index: number, history: HistoryItem[], commandMode?: string): string => {
+export const getClaudeExecutionLabel = (item: HistoryItem, index: number, history: HistoryItem[], commandMode?: string): string => {
   const routing = item.metadata?.syntheticRouting;
   if (routing) {
     const attempt = routing.attemptNumber ?? history.slice(0, index + 1)
@@ -45,12 +45,16 @@ const getClaudeExecutionLabel = (item: HistoryItem, index: number, history: Hist
 
   const actionLabel = isReview ? 'Reviewing' : isFix ? 'Applying Fix' : 'Implementing Changes';
   const completedLabel = isReview ? 'Review Completed' : isFix ? 'Fix Completed' : 'Implementation Completed';
+  const interruptedLabel = isReview ? 'Review Interrupted' : isFix ? 'Fix Interrupted' : 'Implementation Interrupted';
+  const unknownResultLabel = isReview ? 'Review Result Unknown' : isFix ? 'Fix Result Unknown' : 'Implementation Result Unknown';
 
-  if (item.reason?.toLowerCase().includes('completed')) return completedLabel;
+  if (item.metadata?.claudeResult?.success === true) return completedLabel;
+  if (item.metadata?.claudeResult?.success === false) return interruptedLabel;
   if (item.reason?.toLowerCase().includes('started')) {
     return claudeCount === 1 ? actionLabel : `Retry ${actionLabel} ${claudeCount}`;
   }
   if (item.metadata?.description) return item.metadata.description;
+  if (item.reason?.toLowerCase().includes('completed')) return unknownResultLabel;
   return claudeCount === 1 ? actionLabel : `Retry ${actionLabel} ${claudeCount}`;
 };
 
