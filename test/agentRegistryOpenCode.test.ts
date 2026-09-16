@@ -194,6 +194,58 @@ test('AgentRegistry degrades without throwing when unified image is unavailable'
     assert.deepStrictEqual(registry.getAllAgents(), []);
 });
 
+test('AgentRegistry refreshes an empty degraded registry when its image recovers', async () => {
+    const registry = AgentRegistry.getInstance();
+    let imageAvailable = false;
+    let imageResolutions = 0;
+    const internal = registry as unknown as {
+        ensureUnifiedAgentImage: (_configs: AgentConfig[], prepareImages: boolean) => Promise<string | null>;
+        unavailableUnifiedAgentImage: { imageTag: string; error: string; recordedAt: string } | null;
+    };
+    internal.ensureUnifiedAgentImage = async () => {
+        imageResolutions += 1;
+        if (!imageAvailable) {
+            internal.unavailableUnifiedAgentImage = {
+                imageTag: 'propr/agent:recoverable',
+                error: 'image unavailable during startup',
+                recordedAt: '2026-09-16T00:00:00.000Z'
+            };
+            return null;
+        }
+        internal.unavailableUnifiedAgentImage = null;
+        return 'propr/agent:recoverable';
+    };
+
+    await registry.refresh();
+    assert.strictEqual(registry.isInitialized(), true);
+    assert.deepStrictEqual(registry.getAllAgents(), []);
+
+    imageAvailable = true;
+    await registry.ensureInitialized();
+
+    assert.strictEqual(imageResolutions, 2);
+    assert.ok(registry.getAgentByAlias('opencode'));
+});
+
+test('AgentRegistry does not refresh an already healthy registry', async () => {
+    const registry = AgentRegistry.getInstance();
+    skipImageChecks(registry);
+    await registry.refresh();
+
+    let imageResolutions = 0;
+    (registry as unknown as {
+        ensureUnifiedAgentImage: () => Promise<string>;
+    }).ensureUnifiedAgentImage = async () => {
+        imageResolutions += 1;
+        return 'propr/agent:latest';
+    };
+
+    await registry.ensureInitialized();
+
+    assert.strictEqual(imageResolutions, 0);
+    assert.ok(registry.getAgentByAlias('opencode'));
+});
+
 test('AgentRegistry keeps working agents while a replacement image is unavailable', async () => {
     const registry = AgentRegistry.getInstance();
     (registry as unknown as {

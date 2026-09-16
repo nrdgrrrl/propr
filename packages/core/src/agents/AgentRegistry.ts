@@ -374,6 +374,17 @@ export class AgentRegistry {
             return;
         }
 
+        // An unavailable image can leave an initialized registry with no direct
+        // agents. An empty image list is otherwise considered healthy, so retry
+        // the read-only refresh when that degraded initialization state recurs.
+        // Intentional all-disabled configurations clear unavailableUnifiedAgentImage
+        // and therefore keep their supported empty-registry behavior.
+        if (this.agents.size === 0 && this.unavailableUnifiedAgentImage) {
+            logger.info('Retrying agent registry initialization after an unavailable image');
+            await this.refresh();
+            return;
+        }
+
         // If an image disappears after initialization, restore it through the
         // worker owner. API/analysis processes never start a Docker build.
         if (!(await this.registeredAgentImagesAvailable())) {
