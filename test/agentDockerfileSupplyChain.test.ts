@@ -65,3 +65,28 @@ test('the image build script uses the same pinned Antigravity version', () => {
   assert.match(buildScript, /"--build-arg" "ANTIGRAVITY_CLI_RELEASE_ID=\$ANTIGRAVITY_CLI_RELEASE_ID"/);
   assert.match(buildScript, /"--build-arg" "ANTIGRAVITY_CLI_SHA512=\$ANTIGRAVITY_CLI_SHA512"/);
 });
+
+test('unified agent image bakes a pinned system Chromium for Playwright', () => {
+  assert.match(dockerfile, /^ARG CHROMIUM_VERSION_PREFIX=\S+$/m);
+  assert.match(dockerfile, /^ARG CHROMIUM_SANDBOX_VERSION_PREFIX=\S+$/m);
+  assert.match(dockerfile, /chromium_apt="\$\(apt_version_arg chromium "\$CHROMIUM_VERSION_PREFIX"\)"/);
+  assert.match(dockerfile, /chromium_sandbox_apt="\$\(apt_version_arg chromium-sandbox "\$CHROMIUM_SANDBOX_VERSION_PREFIX"\)"/);
+  assert.match(dockerfile, /\$chromium_apt/);
+  assert.match(dockerfile, /\$chromium_sandbox_apt/);
+  assert.match(dockerfile, /COPY scripts\/playwright-chromium\.sh \/usr\/local\/bin\/propr-chromium/);
+  assert.match(dockerfile, /RUN chmod 0755 \/usr\/local\/bin\/propr-chromium/);
+  assert.match(dockerfile, /^ENV PLAYWRIGHT_CHROMIUM=\/usr\/local\/bin\/propr-chromium$/m);
+  assert.match(dockerfile, /chromium --version/);
+});
+
+test('unified agent image installs the pinned Godot 4.7 Linux x86_64 binary', () => {
+  assert.match(dockerfile, /^ARG GODOT_VERSION=4\.7-stable$/m);
+  assert.match(dockerfile, /^ARG GODOT_LINUX_X86_64_SHA256=[a-f0-9]{64}$/m);
+  assert.match(dockerfile, /Godot_v\$\{GODOT_VERSION\}_linux\.x86_64\.zip/);
+  assert.match(dockerfile, /sha256sum -c -/);
+  assert.match(dockerfile, /python3 -c 'import sys, zipfile/);
+  assert.match(dockerfile, /install -m 0755 "\$godot_binary" \/usr\/local\/bin\/godot/);
+  assert.match(dockerfile, /ln -sf \/usr\/local\/bin\/godot \/usr\/local\/bin\/godot4/);
+  assert.match(dockerfile, /godot --version/);
+  assert.ok(dockerfile.indexOf('sha256sum -c -') < dockerfile.indexOf("python3 -c 'import sys, zipfile"));
+});

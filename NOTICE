@@ -57,17 +57,23 @@ Bundled third-party components
    Installed from the official distribution at cli.github.com.
 
 6. Debian Linux base image and system packages in the unified agent image
-   (bash, build-essential, git, curl, ca-certificates, iptables, procps,
-   tini, ripgrep, gosu, python3)
+   (bash, build-essential, chromium, chromium-sandbox, git, curl,
+   ca-certificates, iptables, procps, tini, ripgrep, gosu, python3)
    Various open-source licenses. See the Debian package tracker for
    per-package details: https://tracker.debian.org/
 
-7. Alpine Linux base image and system packages in the Propr app and launcher
+7. Godot Engine 4.7 Linux x86_64 binary
+   License:    MIT
+   Upstream:   https://github.com/godotengine/godot/releases/tag/4.7-stable
+   Downloaded from the official release archive and verified with a pinned
+   SHA-256 checksum during the unified agent image build.
+
+8. Alpine Linux base image and system packages in the Propr app and launcher
    images (git, curl, jq, sudo, docker-cli, tini, python3, make, g++)
    Various open-source licenses. See Alpine package metadata for per-package
    details: https://pkgs.alpinelinux.org/packages
 
-8. Node.js 22 runtime
+9. Node.js 22 runtime
    License:    MIT (Node.js itself) plus various licenses for bundled
                components (V8, libuv, OpenSSL, etc.)
    Upstream:   https://nodejs.org/

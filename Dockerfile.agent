@@ -19,6 +19,8 @@ FROM --platform=${AGENT_PLATFORM} node:22-bookworm-slim AS agent-base
 ARG BASH_VERSION_PREFIX=5.2.15-2
 ARG BUILD_ESSENTIAL_VERSION_PREFIX=12.
 ARG CA_CERTIFICATES_VERSION_PREFIX=20230311+deb12u
+ARG CHROMIUM_VERSION_PREFIX=152.0.7977.82-1~deb12u1
+ARG CHROMIUM_SANDBOX_VERSION_PREFIX=152.0.7977.82-1~deb12u1
 ARG CURL_VERSION_PREFIX=7.88.1-10+deb12u
 # gh comes from GitHub's own apt repo, which only serves recent releases, so its
 # install falls back to the latest available version when this prefix no longer
@@ -67,6 +69,8 @@ RUN set -eu; \
     && apt-get update \
     && bash_apt="$(apt_version_arg bash "$BASH_VERSION_PREFIX")" \
     && build_essential_apt="$(apt_version_arg build-essential "$BUILD_ESSENTIAL_VERSION_PREFIX")" \
+    && chromium_apt="$(apt_version_arg chromium "$CHROMIUM_VERSION_PREFIX")" \
+    && chromium_sandbox_apt="$(apt_version_arg chromium-sandbox "$CHROMIUM_SANDBOX_VERSION_PREFIX")" \
     && gh_apt="$(apt_version_arg gh "$GH_VERSION_PREFIX" true)" \
     && git_apt="$(apt_version_arg git "$GIT_VERSION_PREFIX")" \
     && gosu_apt="$(apt_version_arg gosu "$GOSU_VERSION_PREFIX")" \
@@ -78,6 +82,8 @@ RUN set -eu; \
     && apt-get install -y --allow-downgrades --no-install-recommends \
         "$bash_apt" \
         "$build_essential_apt" \
+        "$chromium_apt" \
+        "$chromium_sandbox_apt" \
         "$gh_apt" \
         "$git_apt" \
         "$gosu_apt" \
@@ -87,10 +93,41 @@ RUN set -eu; \
         "$ripgrep_apt" \
         "$tini_apt" \
     && ln -sf "$(command -v gosu)" /usr/local/bin/su-exec \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && chromium --version
 
 RUN mkdir -p /home/node/workspace \
     && chown -R node:node /home/node
+
+# Godot's official Linux editor binary is self-contained and does not need
+# export templates, .NET support, or a second runtime image. Keep the release
+# and checksum explicit so the execution image remains immutable and offline at
+# job runtime.
+ARG GODOT_VERSION=4.7-stable
+ARG GODOT_LINUX_X86_64_SHA256=0b1a6c54c2c619c12e169fe9241edda4b81080b519451cec2984bf0d2c6cb73c
+RUN set -eu; \
+    archive=/tmp/godot-linux-x86_64.zip; \
+    extract_dir=/tmp/godot; \
+    curl --fail --show-error --silent --location \
+        --connect-timeout 20 --max-time 300 \
+        --retry 5 --retry-delay 2 --retry-max-time 180 --retry-all-errors \
+        -o "$archive" \
+        "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"; \
+    printf '%s  %s\n' "$GODOT_LINUX_X86_64_SHA256" "$archive" | sha256sum -c -; \
+    mkdir -p "$extract_dir"; \
+    python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$archive" "$extract_dir"; \
+    godot_binary="$(find "$extract_dir" -maxdepth 1 -type f -name "Godot_v${GODOT_VERSION}_linux.x86_64" -print -quit)"; \
+    test -n "$godot_binary"; \
+    install -m 0755 "$godot_binary" /usr/local/bin/godot; \
+    ln -sf /usr/local/bin/godot /usr/local/bin/godot4; \
+    rm -f "$archive" "$godot_binary"; \
+    rmdir "$extract_dir"; \
+    godot --version
+
+COPY scripts/playwright-chromium.sh /usr/local/bin/propr-chromium
+RUN chmod 0755 /usr/local/bin/propr-chromium
+
+ENV PLAYWRIGHT_CHROMIUM=/usr/local/bin/propr-chromium
 
 COPY scripts/init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY scripts/gh-wrapper.sh /usr/local/bin/gh-wrapper

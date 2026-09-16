@@ -34,11 +34,22 @@ cat >> "$OUT" <<'EOF'
 
 The unified `propr/agent` image is based on `node:22-bookworm-slim` and
 installs system packages from Debian repositories,
-including bash, build-essential, git, curl, ca-certificates, iptables,
-procps, tini, ripgrep, gosu, and python3. GitHub CLI (`gh`) is installed from
-the official GitHub CLI apt repository at cli.github.com.
+including bash, build-essential, chromium, chromium-sandbox, git, curl,
+ca-certificates, iptables, procps, tini, ripgrep, gosu, and python3. GitHub
+CLI (`gh`) is installed from the official GitHub CLI apt repository at
+cli.github.com.
 See the Debian package tracker for per-package licensing details:
 https://tracker.debian.org/
+
+---
+
+## Godot Engine 4.7 Linux x86_64
+
+Licensed under the MIT License.
+Source: https://github.com/godotengine/godot/releases/tag/4.7-stable
+The official release archive is verified with a pinned SHA-256 checksum during
+the unified `propr/agent` image build. Export templates and .NET support are
+not included.
 
 ---
 
