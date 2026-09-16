@@ -33,6 +33,13 @@ export function toClaudeResult(response: ClaudeCodeResponse): ClaudeResult {
     };
 }
 
+export function shouldRecordFailureLLMMetrics(
+    claudeResult: ClaudeCodeResponse | null,
+    metricsAlreadyRecorded: boolean,
+): claudeResult is ClaudeCodeResponse {
+    return Boolean(claudeResult) && !metricsAlreadyRecorded;
+}
+
 const DEFAULT_MODEL_NAME: string | null = process.env.DEFAULT_CLAUDE_MODEL || getDefaultModel() || null;
 const REQUEUE_BUFFER_MS = parseInt(process.env.REQUEUE_BUFFER_MS || String(5 * 60 * 1000), 10);
 const REQUEUE_JITTER_MS = parseInt(process.env.REQUEUE_JITTER_MS || String(2 * 60 * 1000), 10);
@@ -170,6 +177,7 @@ export interface JobErrorOptions {
     octokit: Awaited<ReturnType<typeof getAuthenticatedOctokit>> | null;
     startingWorkComment: { data: { id: number } } | null;
     claudeResult: ClaudeCodeResponse | null; correlationId: string;
+    llmMetricsRecorded?: boolean;
     correlatedLogger: Logger; stateManager: WorkerStateManager; taskId: string;
     /** Complete in-memory claim to persist in a delayed retry payload. */
     retryComments?: UnprocessedComment[];
@@ -252,7 +260,7 @@ async function handleGenericError(error: Error, options: JobErrorOptions): Promi
     handleError(error, 'Failed to process PR comment job', { correlationId });
     const sanitizedMessage = sanitizeErrorMessage(error.message);
     await stateManager.updateTaskState(taskId, TaskStates.FAILED, { reason: 'PR comment processing failed', error: { message: sanitizedMessage } });
-    if (claudeResult) {
+    if (shouldRecordFailureLLMMetrics(claudeResult, options.llmMetricsRecorded === true)) {
         try {
             await recordLLMMetrics(toClaudeResult(claudeResult), { number: pullRequestNumber, repoOwner, repoName }, { jobType: 'pr_comment', correlationId, taskId });
         } catch (metricsError) {

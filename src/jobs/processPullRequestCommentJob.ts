@@ -97,6 +97,7 @@ interface ProcessingState {
     localRepoPath: string | undefined;
     worktreeInfo: WorktreeInfo | undefined;
     claudeResult: ClaudeCodeResponse | null;
+    llmMetricsRecorded: boolean;
     authorsText: string;
     unprocessedComments: UnprocessedComment[];
     startingWorkComment: { data: { id: number; html_url: string } } | null;
@@ -367,6 +368,7 @@ async function executeProcessing(params: ExecuteProcessingParams): Promise<JobRe
     checkTerminalStateAfterExecution(await stateManager.getTaskState(taskId), taskId, correlatedLogger);
 
     await recordLLMMetrics(toClaudeResult(state.claudeResult), { number: pullRequestNumber, repoOwner, repoName }, { jobType: 'pr_comment', correlationId, taskId });
+    state.llmMetricsRecorded = true;
     await createLogFiles(state.claudeResult as unknown, { number: pullRequestNumber, repoOwner, repoName });
     await stateManager.updateTaskState(taskId, TaskStates.CLAUDE_EXECUTION, {
         reason: `${agentType} agent execution completed`,
@@ -432,7 +434,7 @@ export async function processPullRequestCommentJob(job: Job<CommentJobData>): Pr
         job, taskId, stateManager, preexistingState, modelName, correlatedLogger,
     });
 
-    const state: ProcessingState = { octokit: null, localRepoPath: undefined, worktreeInfo: undefined, claudeResult: null, authorsText: '', unprocessedComments: [], startingWorkComment: null };
+    const state: ProcessingState = { octokit: null, localRepoPath: undefined, worktreeInfo: undefined, claudeResult: null, llmMetricsRecorded: false, authorsText: '', unprocessedComments: [], startingWorkComment: null };
 
     try {
         // Branch early for review mode — read-only analysis, no commits or pushes
@@ -441,7 +443,7 @@ export async function processPullRequestCommentJob(job: Job<CommentJobData>): Pr
         }
         return await runWithExecutionAbortSignal(executionController.signal, () => executeProcessing({ job, context, llm, taskId, stateManager, state, lockKey, lockToken }), hashTaskAttemptToken(lockToken));
     } catch (error) {
-        await handleJobError(error as Error, job, { pullRequestNumber, repoOwner, repoName, authorsText: state.authorsText, unprocessedComments: state.unprocessedComments, octokit: state.octokit, startingWorkComment: state.startingWorkComment, claudeResult: state.claudeResult, correlationId, correlatedLogger, stateManager, taskId, retryComments: context.commentsToProcess });
+        await handleJobError(error as Error, job, { pullRequestNumber, repoOwner, repoName, authorsText: state.authorsText, unprocessedComments: state.unprocessedComments, octokit: state.octokit, startingWorkComment: state.startingWorkComment, claudeResult: state.claudeResult, llmMetricsRecorded: state.llmMetricsRecorded, correlationId, correlatedLogger, stateManager, taskId, retryComments: context.commentsToProcess });
         // Don't re-throw for user cancellations (not an error, just cancelled)
         const isUserCancelled = (error as Error).message?.includes('aborted by user');
         if (isUserCancelled) {
