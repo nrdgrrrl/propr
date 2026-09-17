@@ -8,6 +8,7 @@ import {
     cleanupWorktree,
     cleanupExpiredWorktrees,
     safePruneWorktrees,
+    setupRepositoryPermissions,
     setupWorktreePermissions,
     addToSafeDirectories,
     getWorktreePath
@@ -195,6 +196,7 @@ async function ensureRepoClonedInternal(opts: EnsureRepoClonedOptions): Promise<
         } else {
             await cloneNewRepo({ localRepoPath, opts });
         }
+        await setupRepositoryPermissions(localRepoPath, `${owner}/${repoName}`);
         return localRepoPath;
     } catch (error) {
         handleError(error, `Failed to clone/fetch repository ${owner}/${repoName}`);
