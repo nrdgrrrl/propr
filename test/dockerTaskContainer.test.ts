@@ -7,12 +7,30 @@ import {
     inspectTaskContainerLivenessForTask,
     type ExecutionResult,
 } from '../packages/core/src/claude/docker/dockerExecutor.js';
+import { resolveExecutionArgs } from '../packages/core/src/claude/docker/dockerExecutionOwnership.js';
 
 function result(stdout: string, exitCode = 0, stderr = ''): ExecutionResult {
     return { stdout, stderr, exitCode, messageTimestamps: new Map() };
 }
 
 describe('running Docker task container lookup', () => {
+    test('translates private host temp roots for child bind sources', () => {
+        const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
+        try {
+            process.env.PROPR_HOST_TEMP_ROOT = '/srv/propr-temp';
+            const translated = resolveExecutionArgs('docker', [
+                'run', '--rm',
+                '-v', '/tmp/git-processor:/tmp/git-processor:rw',
+                'agent-image',
+            ], undefined, undefined);
+
+            assert.ok(translated.includes('/srv/propr-temp/git-processor:/tmp/git-processor:rw'));
+        } finally {
+            if (previousTempRoot === undefined) delete process.env.PROPR_HOST_TEMP_ROOT;
+            else process.env.PROPR_HOST_TEMP_ROOT = previousTempRoot;
+        }
+    });
+
     test('finds a running container by the exact task label', async () => {
         let receivedArgs: string[] = [];
         const executor = async (_command: string, args: string[]) => {

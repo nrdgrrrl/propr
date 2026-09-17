@@ -264,14 +264,39 @@ export async function safePruneWorktrees(localRepoPath: string, minAgeHours: num
     return { pruned, skipped };
 }
 
+/**
+ * Resolve the writable Git metadata for a linked worktree.
+ *
+ * Git keeps a linked worktree's index under the common repository's
+ * `.git/worktrees/<name>` directory, not under the visible worktree path.
+ * Keep this constrained to Git's per-worktree metadata so permission repair
+ * cannot accidentally walk the common repository itself.
+ */
+export async function resolveLinkedWorktreeGitDir(worktreePath: string): Promise<string> {
+    const worktreeGit = createHooklessGit(worktreePath);
+    const gitDir = path.resolve(worktreePath, (await worktreeGit.raw(['rev-parse', '--git-dir'])).trim());
+    const commonDir = path.resolve(worktreePath, (await worktreeGit.raw(['rev-parse', '--git-common-dir'])).trim());
+    const worktreesDir = path.join(commonDir, 'worktrees');
+    const relativeMetadataPath = path.relative(worktreesDir, gitDir);
+
+    if (!relativeMetadataPath
+        || relativeMetadataPath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativeMetadataPath)) {
+        throw new Error(`Git metadata path is not a linked-worktree directory: ${gitDir}`);
+    }
+
+    return gitDir;
+}
+
 export async function setupWorktreePermissions(worktreePath: string, branchName: string, issueId: number | string | null): Promise<void> {
     try {
         const { execFileSync } = await import('child_process');
-        execFileSync('sudo', ['chown', '-R', '1000:1000', '--', worktreePath], {
+        const linkedWorktreeGitDir = await resolveLinkedWorktreeGitDir(worktreePath);
+        execFileSync('sudo', ['chown', '-R', '1000:1000', '--', worktreePath, linkedWorktreeGitDir], {
             stdio: 'inherit',
             timeout: 10000
         });
-        logger.debug({ worktreePath, branchName, issueId }, 'Set worktree ownership to UID 1000 for container compatibility');
+        logger.debug({ worktreePath, linkedWorktreeGitDir, branchName, issueId }, 'Set worktree and linked Git metadata ownership to UID 1000 for container compatibility');
     } catch (chownError) {
         logger.warn({ worktreePath, branchName, issueId, error: (chownError as Error).message }, 'Failed to set worktree ownership - container may have permission issues');
     }
