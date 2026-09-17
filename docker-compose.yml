@@ -49,11 +49,11 @@ services:
     volumes:
       - ./logs:/usr/src/app/logs
       - ./data:/usr/src/app/data
-      - /tmp/git-processor:/tmp/git-processor
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/git-processor:/tmp/git-processor
       # Docker socket for PR preview deployments
       - /var/run/docker.sock:/var/run/docker.sock
       # Worktrees directory for PR branch checkouts
-      - /tmp/pr-worktrees:/tmp/pr-worktrees
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/pr-worktrees:/tmp/pr-worktrees
       # Mount .env for deploy-pr.sh script
       - ./.env:/usr/src/app/.env:ro
     env_file:
@@ -61,6 +61,8 @@ services:
     environment:
       - GITHUB_BOT_USERNAME=${GITHUB_BOT_USERNAME:-propr-dev[bot]}
       - STAGING_ENV_FILE=/usr/src/app/.env
+      - PROPR_STACK=${PROPR_STACK:-propr}
+      - PROPR_HOST_TEMP_ROOT=${PROPR_HOST_TEMP_ROOT:-}
     depends_on:
       redis:
         condition: service_started
@@ -83,7 +85,7 @@ services:
       - ./logs:/usr/src/app/logs
       - ./repos:/usr/src/app/repos
       - ./data:/usr/src/app/data
-      - /tmp/git-processor:/tmp/git-processor
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/git-processor:/tmp/git-processor
       # Mount agent credentials at the same path on both sides so the worker
       # can pass host-valid paths when spawning sibling agent containers.
       # IMPORTANT: Create any missing directories before starting:
@@ -95,10 +97,10 @@ services:
       - ${HOME:?HOME must be set}/.vibe:${HOME:?HOME must be set}/.vibe:ro
       - ${HOME:?HOME must be set}/.propr/agent-credentials:${HOME:?HOME must be set}/.propr/agent-credentials
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/claude-logs:/tmp/claude-logs
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/claude-logs:/tmp/claude-logs
       # Vibe prompt cache — mounted by default so Vibe works when MISTRAL_API_KEY
       # is set. PREFLIGHT for this compose file: mkdir -p /tmp/propr-vibe-prompts
-      - /tmp/propr-vibe-prompts:/tmp/propr-vibe-prompts
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/propr-vibe-prompts:/tmp/propr-vibe-prompts
     env_file:
       - .env
     environment:
@@ -113,6 +115,8 @@ services:
       # the Web UI. App installation tokens cannot upload GitHub attachments.
       - GITHUB_VISUAL_PREVIEW_TOKEN=${GITHUB_VISUAL_PREVIEW_TOKEN:-}
       - PROPR_CONTAINERIZED=1
+      - PROPR_STACK=${PROPR_STACK:-propr}
+      - PROPR_HOST_TEMP_ROOT=${PROPR_HOST_TEMP_ROOT:-}
     depends_on:
       redis:
         condition: service_started
@@ -130,10 +134,10 @@ services:
     volumes:
       - ./logs:/usr/src/app/logs
       - ./data:/usr/src/app/data
-      - /tmp/git-processor:/tmp/git-processor:ro
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/git-processor:/tmp/git-processor:ro
       # Vibe prompt cache — mounted by default for consistency with worker.
-      - /tmp/propr-vibe-prompts:/tmp/propr-vibe-prompts:rw
-      - /tmp/claude-logs:/tmp/claude-logs:ro
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/propr-vibe-prompts:/tmp/propr-vibe-prompts:rw
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/claude-logs:/tmp/claude-logs:ro
       - ${HOME:?HOME must be set}/.claude:${HOME:?HOME must be set}/.claude:ro
       - ${HOME:?HOME must be set}/.gemini:${HOME:?HOME must be set}/.gemini:ro
       - ${HOME:?HOME must be set}/.codex:${HOME:?HOME must be set}/.codex:ro
@@ -151,6 +155,8 @@ services:
       - VIBE_CONFIG_PATH=${HOME:?HOME must be set}/.vibe
       - PROPR_MANAGED_CREDENTIALS_DIR=${HOME:?HOME must be set}/.propr/agent-credentials
       - PROPR_CONTAINERIZED=1
+      - PROPR_STACK=${PROPR_STACK:-propr}
+      - PROPR_HOST_TEMP_ROOT=${PROPR_HOST_TEMP_ROOT:-}
     depends_on:
       redis:
         condition: service_started
@@ -168,17 +174,17 @@ services:
     volumes:
       - ./logs:/usr/src/app/logs
       - ./data:/usr/src/app/data
-      - /tmp/git-processor:/tmp/git-processor
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/git-processor:/tmp/git-processor
       - ${HOME:?HOME must be set}/.claude:${HOME:?HOME must be set}/.claude:ro
       - ${HOME:?HOME must be set}/.gemini:${HOME:?HOME must be set}/.gemini:ro
       - ${HOME:?HOME must be set}/.codex:${HOME:?HOME must be set}/.codex:ro
       - ${HOME:?HOME must be set}/.vibe:${HOME:?HOME must be set}/.vibe:ro
       - ${HOME:?HOME must be set}/.propr/agent-credentials:${HOME:?HOME must be set}/.propr/agent-credentials
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/claude-logs:/tmp/claude-logs
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/claude-logs:/tmp/claude-logs
       # Vibe prompt cache — mounted by default so indexing summarization can
       # pass large prompts to sibling Vibe containers via the host Docker daemon.
-      - /tmp/propr-vibe-prompts:/tmp/propr-vibe-prompts
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/propr-vibe-prompts:/tmp/propr-vibe-prompts
     env_file:
       - .env
     environment:
@@ -190,6 +196,8 @@ services:
       - VIBE_CONFIG_PATH=${HOME:?HOME must be set}/.vibe
       - PROPR_MANAGED_CREDENTIALS_DIR=${HOME:?HOME must be set}/.propr/agent-credentials
       - PROPR_CONTAINERIZED=1
+      - PROPR_STACK=${PROPR_STACK:-propr}
+      - PROPR_HOST_TEMP_ROOT=${PROPR_HOST_TEMP_ROOT:-}
       # How often to scan for repos needing indexing (default: 5 minutes)
       - INDEXING_SCAN_INTERVAL_MS=${INDEXING_SCAN_INTERVAL_MS:-300000}
       # How often to re-index repos (default: 24 hours)
@@ -244,13 +252,13 @@ services:
       - ${HOME:?HOME must be set}/.vibe:${HOME:?HOME must be set}/.vibe:ro
       - ${HOME:?HOME must be set}/.propr/agent-credentials:${HOME:?HOME must be set}/.propr/agent-credentials
       - ./data:/usr/src/app/data
-      - /tmp/claude-logs:/tmp/claude-logs:ro
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/claude-logs:/tmp/claude-logs:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - /tmp/git-processor:/tmp/git-processor
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/git-processor:/tmp/git-processor
       # Vibe prompt cache — mounted by default for consistency with worker.
-      - /tmp/propr-vibe-prompts:/tmp/propr-vibe-prompts
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/propr-vibe-prompts:/tmp/propr-vibe-prompts
       # Worktrees directory for PR branch checkouts
-      - /tmp/pr-worktrees:/tmp/pr-worktrees
+      - ${PROPR_HOST_TEMP_ROOT:-/tmp}/pr-worktrees:/tmp/pr-worktrees
       # Mount the env file - uses STAGING_ENV_FILE if set, defaults to ./.env
       - ${STAGING_ENV_FILE:-./.env}:/usr/src/app/.env:ro
     env_file:
@@ -266,6 +274,7 @@ services:
       - PROPR_MANAGED_CREDENTIALS_DIR=${HOME:?HOME must be set}/.propr/agent-credentials
       - PROPR_CONTAINERIZED=1
       - PROPR_STACK=${PROPR_STACK:-propr}
+      - PROPR_HOST_TEMP_ROOT=${PROPR_HOST_TEMP_ROOT:-}
       - CONFIG_REPO_PATH=/tmp/config_repo
       # Keep API-owned durable state on the mounted data directory. The startup
       # command preserves env_file database paths and resolves relative filenames

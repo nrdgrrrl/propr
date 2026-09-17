@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { addProprStackOwnershipToDockerRunArgs } from './dockerStackIsolation.js';
 import { teardownDockerExecution } from './dockerContainerControl.js';
 
 interface ExecutionOwnershipContext {
@@ -122,9 +123,9 @@ export function resolveExecutionArgs(
     taskId: string | undefined,
     attemptGeneration: string | undefined,
 ): string[] {
-    return command === 'docker'
-        ? addTaskAttemptLabelsToDockerArgs(args, taskId, attemptGeneration)
-        : args;
+    if (command !== 'docker') return args;
+    const stackScopedArgs = addProprStackOwnershipToDockerRunArgs(args);
+    return addTaskAttemptLabelsToDockerArgs(stackScopedArgs, taskId, attemptGeneration);
 }
 
 export function getDockerRunContainerName(args: string[]): string | null {
