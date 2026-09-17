@@ -326,11 +326,15 @@ export function resolveConfig(env = process.env, overrides = {}) {
     const vibePromptCacheDir = get('VIBE_PROMPT_CACHE_DIR') || '/tmp/propr-vibe-prompts';
     // The host bind path defaults to a per-user private /tmp location when Vibe
     // is enabled, so prompt files are not exposed through a shared 0777 cache.
-    // An explicit HOST_VIBE_PROMPT_CACHE_DIR is still honored and validated.
+    // An explicit HOST_VIBE_PROMPT_CACHE_DIR takes precedence over that derived
+    // location and remains available for an intentional cache-only override.
     const vibeEnabled = Boolean(hostVibeDir || mistralApiKey);
-    const hostVibePromptCacheDir = (hostTempRoot ? resolveHostTempPath('/tmp/propr-vibe-prompts', hostTempRoot) : undefined)
-        || get('HOST_VIBE_PROMPT_CACHE_DIR')
-        || (vibeEnabled ? defaultHostVibePromptCacheDir() : undefined);
+    const hostVibePromptCacheDir = get('HOST_VIBE_PROMPT_CACHE_DIR')
+        || (vibeEnabled
+            ? (hostTempRoot
+                ? resolveHostTempPath('/tmp/propr-vibe-prompts', hostTempRoot)
+                : defaultHostVibePromptCacheDir())
+            : undefined);
 
     // Host path to the GitHub App private key (.pem). When set, the key is
     // bind-mounted into the app containers (HOST:HOST, read-only) and

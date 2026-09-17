@@ -167,6 +167,30 @@ test('configured host temp root maps the four host directories while preserving 
   assert.deepEqual(envValues(workerArgs, 'PROPR_HOST_TEMP_ROOT'), ['/srv/propr-alt-temp']);
 });
 
+test('explicit Vibe prompt cache host path overrides the configured host temp root', () => {
+  const cfg = resolveConfig({
+    PROPR_HOST_TEMP_ROOT: '/srv/propr-alt-temp',
+    HOST_VIBE_PROMPT_CACHE_DIR: '/srv/custom-vibe-prompts',
+    MISTRAL_API_KEY: 'test-key',
+  }, { manifestPath });
+  const workerArgs = buildServiceSpec(cfg, 'worker').args;
+
+  assert.equal(cfg.hostVibePromptCacheDir, '/srv/custom-vibe-prompts');
+  assert.ok(workerArgs.includes('/srv/custom-vibe-prompts:/tmp/propr-vibe-prompts'));
+  assert.ok(!workerArgs.includes('/srv/propr-alt-temp/propr-vibe-prompts:/tmp/propr-vibe-prompts'));
+});
+
+test('host temp root alone does not enable or mount the Vibe prompt cache', () => {
+  const cfg = resolveConfig({
+    PROPR_HOST_TEMP_ROOT: '/srv/propr-alt-temp',
+  }, { manifestPath });
+  const workerArgs = buildServiceSpec(cfg, 'worker').args;
+
+  assert.equal(cfg.hostVibePromptCacheDir, undefined);
+  assert.ok(!workerArgs.some(value => value.endsWith(':/tmp/propr-vibe-prompts')));
+  assert.deepEqual(envValues(workerArgs, 'VIBE_PROMPT_CACHE_DIR'), []);
+});
+
 test('rejects a host temp root that is invalid or collides with the shared /tmp tree', () => {
   for (const value of ['relative/path', '/tmp']) {
     const errors = validateEnv(resolveConfig({ PROPR_HOST_TEMP_ROOT: value }, { manifestPath })).errors;
