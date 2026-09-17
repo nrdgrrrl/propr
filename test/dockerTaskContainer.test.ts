@@ -36,7 +36,7 @@ describe('running Docker task container lookup', () => {
             assert.ok(scoped.includes('/srv/propr-alt-temp/claude-logs:/tmp/claude-logs:rw'));
             assert.ok(scoped.includes('/srv/propr-alt-temp/propr-vibe-prompts/vibe-prompt-1/prompt.txt:/home/node/prompt.txt:ro'));
 
-        process.env.PROPR_STACK = 'propr-main';
+            process.env.PROPR_STACK = 'propr-main';
             delete process.env.PROPR_HOST_TEMP_ROOT;
             const existingMain = resolveExecutionArgs('docker', [
                 'run', '--rm', '--name', 'claude-issue-17-task-id',
@@ -62,6 +62,27 @@ describe('running Docker task container lookup', () => {
         }
     });
 
+    test('translates linked worktree bind sources under the git processor root', () => {
+        const previousStack = process.env.PROPR_STACK;
+        const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
+        try {
+            process.env.PROPR_STACK = 'propr-alt';
+            process.env.PROPR_HOST_TEMP_ROOT = '/srv/propr-alt-temp';
+            const scoped = resolveExecutionArgs('docker', [
+                'run', '--rm', '--name', 'codex-pr-279-followup',
+                '-v', '/tmp/git-processor/worktrees/acme/repo/pr-279-followup:/home/node/workspace:rw',
+                'agent-image',
+            ], undefined, undefined);
+
+            assert.ok(scoped.includes('/srv/propr-alt-temp/git-processor/worktrees/acme/repo/pr-279-followup:/home/node/workspace:rw'));
+        } finally {
+            if (previousStack === undefined) delete process.env.PROPR_STACK;
+            else process.env.PROPR_STACK = previousStack;
+            if (previousTempRoot === undefined) delete process.env.PROPR_HOST_TEMP_ROOT;
+            else process.env.PROPR_HOST_TEMP_ROOT = previousTempRoot;
+        }
+    });
+
     test('enables Docker init for every protected run without duplicating an existing flag', () => {
         const withInit = resolveExecutionArgs('docker', [
             'run', '--rm', '--name', 'agent-task', 'agent-image',
@@ -78,7 +99,7 @@ describe('running Docker task container lookup', () => {
     test('scopes named-stack discovery and does not treat an unscoped legacy name as a collision', async () => {
         const previousStack = process.env.PROPR_STACK;
         const previousTempRoot = process.env.PROPR_HOST_TEMP_ROOT;
-            process.env.PROPR_STACK = 'propr-main';
+        process.env.PROPR_STACK = 'propr-main';
         delete process.env.PROPR_HOST_TEMP_ROOT;
         let receivedArgs: string[] = [];
         let legacyDiscoveryCalled = false;
