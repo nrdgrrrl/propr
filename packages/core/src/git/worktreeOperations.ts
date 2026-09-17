@@ -281,6 +281,7 @@ export async function resolveLinkedWorktreeGitDir(worktreePath: string): Promise
     const relativeMetadataPath = path.relative(worktreesDir, gitDir);
 
     if (!relativeMetadataPath
+        || relativeMetadataPath === '..'
         || relativeMetadataPath.startsWith(`..${path.sep}`)
         || path.isAbsolute(relativeMetadataPath)) {
         throw new Error(`Git metadata path is not a linked-worktree directory: ${gitDir}`);

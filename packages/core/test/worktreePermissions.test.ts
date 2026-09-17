@@ -51,6 +51,23 @@ test('resolves a linked worktree index under the common repository metadata', as
     }
 });
 
+test('rejects an exact .. relative Git metadata path', async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'propr-worktree-permissions-'));
+    const repositoryPath = path.join(tempDir, 'repository');
+
+    try {
+        await fs.ensureDir(repositoryPath);
+        await simpleGit(repositoryPath).init();
+
+        await assert.rejects(
+            resolveLinkedWorktreeGitDir(repositoryPath),
+            /Git metadata path is not a linked-worktree directory/,
+        );
+    } finally {
+        await fs.remove(tempDir);
+    }
+});
+
 test('repairs shared Git metadata before an agent writes from a linked worktree', async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'propr-shared-git-permissions-'));
     const repositoryPath = path.join(tempDir, 'repository');
