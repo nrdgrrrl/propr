@@ -19,8 +19,8 @@ FROM --platform=${AGENT_PLATFORM} node:22-bookworm-slim AS agent-base
 ARG BASH_VERSION_PREFIX=5.2.15-2
 ARG BUILD_ESSENTIAL_VERSION_PREFIX=12.
 ARG CA_CERTIFICATES_VERSION_PREFIX=20230311+deb12u
-ARG CHROMIUM_VERSION_PREFIX=153.0.8010.47-2~deb12u1
-ARG CHROMIUM_SANDBOX_VERSION_PREFIX=153.0.8010.47-2~deb12u1
+ARG CHROMIUM_VERSION_PREFIX=153.0.8010.52-1~deb12u1
+ARG CHROMIUM_SANDBOX_VERSION_PREFIX=153.0.8010.52-1~deb12u1
 ARG CURL_VERSION_PREFIX=7.88.1-10+deb12u
 # gh comes from GitHub's own apt repo, which only serves recent releases, so its
 # install falls back to the latest available version when this prefix no longer
