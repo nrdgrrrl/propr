@@ -37,6 +37,15 @@ export interface UndoLinkContext {
     instructionCommentId: number;
 }
 
+interface NoChangesCompletionOptions {
+    unprocessedComments: UnprocessedComment[];
+    commentContext: CommentContext;
+    claudeResult: ClaudeCodeResponse;
+    partial: boolean;
+    terminationReason: ReturnType<typeof resolveAgentTerminationReason>;
+    cleanBody: (text: string) => string;
+}
+
 interface CommitResult {
     commitHash: string;
 }
@@ -137,6 +146,63 @@ function getCompletionSummary(claudeResult: ClaudeCodeResponse, commitMessage: s
         || changesSummary;
 }
 
+async function buildNoChangesCompletionComment(options: NoChangesCompletionOptions): Promise<string> {
+    const { unprocessedComments, commentContext, claudeResult, partial, terminationReason, cleanBody } = options;
+    const { changesSummary, commitMessage, llm, authorsText, taskUrl, visualPreviewSection } = commentContext;
+
+    if (partial) {
+        let noChangesBody = `⚠️ **Follow-up execution was interrupted before completion** by ${authorsText}\n\n`;
+        noChangesBody += `> [!WARNING]\n> **This work is incomplete.** ${describeAgentTermination(terminationReason!)}\n\n`;
+
+        const contentToShow = getCompletionSummary(claudeResult, commitMessage, changesSummary);
+        if (contentToShow) {
+            noChangesBody += `## Last Agent Update\n\n${cleanBody(contentToShow)}\n\n`;
+        }
+
+        noChangesBody += '## No Code Changes to Publish\n\nNo code changes were produced to publish before the interruption.\n\n';
+        noChangesBody += '## Remaining Work\n\nThe agent stopped before completing all requested work. Review the follow-up instructions and complete any remaining validation, implementation, tests, or documentation.\n\n';
+
+        if (visualPreviewSection) {
+            noChangesBody += `${visualPreviewSection}\n\n`;
+        }
+
+        noChangesBody += await buildMetricsSection(claudeResult, llm, authorsText, false);
+
+        if (taskUrl) {
+            noChangesBody += `\n\n[View Task Execution](${taskUrl})`;
+        }
+
+        noChangesBody += `\n\n---\n`;
+        noChangesBody += buildSlashCommandsBlock();
+        noChangesBody += `${buildAttributionLine()}\n`;
+        noChangesBody += buildCompletionFooter(unprocessedComments);
+
+        return noChangesBody;
+    }
+
+    let noChangesBody = `ℹ️ **Analyzed the follow-up request** by ${authorsText}\n\n`;
+
+    if (changesSummary) {
+        noChangesBody += `## Analysis Summary\n\n${cleanBody(changesSummary)}\n\n`;
+    }
+
+    noChangesBody += visualPreviewSection
+        ? `No code changes were necessary based on the current state of the branch. Visual preview results are included below.\n\n${visualPreviewSection}\n\n`
+        : `No code changes were necessary based on the current state of the branch.\n\n`;
+    noChangesBody += await buildMetricsSection(claudeResult, llm, authorsText, true);
+
+    if (taskUrl) {
+        noChangesBody += `\n\n[View Task Execution](${taskUrl})`;
+    }
+
+    noChangesBody += `\n\n---\n`;
+    noChangesBody += buildSlashCommandsBlock();
+    noChangesBody += `${buildAttributionLine()}\n`;
+    noChangesBody += buildCompletionFooter(unprocessedComments);
+
+    return noChangesBody;
+}
+
 export async function buildCompletionComment(
     commitResult: CommitResult | null,
     unprocessedComments: UnprocessedComment[],
@@ -207,27 +273,14 @@ export async function buildCompletionComment(
         prCommentBody += buildCompletionFooter(unprocessedComments);
 
         return prCommentBody;
-    } else {
-        let noChangesBody = `ℹ️ **Analyzed the follow-up request** by ${authorsText}\n\n`;
-
-        if (changesSummary) {
-            noChangesBody += `## Analysis Summary\n\n${cleanBody(changesSummary)}\n\n`;
-        }
-
-        noChangesBody += visualPreviewSection
-            ? `No code changes were necessary based on the current state of the branch. Visual preview results are included below.\n\n${visualPreviewSection}\n\n`
-            : `No code changes were necessary based on the current state of the branch.\n\n`;
-        noChangesBody += await buildMetricsSection(claudeResult, llm, authorsText, true);
-
-        if (taskUrl) {
-            noChangesBody += `\n\n[View Task Execution](${taskUrl})`;
-        }
-
-        noChangesBody += `\n\n---\n`;
-        noChangesBody += buildSlashCommandsBlock();
-        noChangesBody += `${buildAttributionLine()}\n`;
-        noChangesBody += buildCompletionFooter(unprocessedComments);
-
-        return noChangesBody;
     }
+
+    return buildNoChangesCompletionComment({
+        unprocessedComments,
+        commentContext,
+        claudeResult,
+        partial,
+        terminationReason,
+        cleanBody,
+    });
 }

@@ -237,9 +237,6 @@ export async function handlePostExecution(params: PostExecutionParams, taskUrl: 
             taskId
         });
         const { commitResult, changesSummary, commitMessage } = await commitAndPush(state, { repoOwner, repoName, pullRequestNumber }, llm);
-        if (partial && !commitResult) {
-            throw new Error(`Agent execution ${terminationReason === 'timeout' ? 'timed out' : 'reached the maximum turn limit'} before producing changes to publish`);
-        }
         if (commitResult?.filesChanged?.length) state.claudeResult.modifiedFiles = commitResult.filesChanged;
 
         const completionComment = await publishCompletionComment({

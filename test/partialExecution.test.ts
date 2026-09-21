@@ -305,4 +305,78 @@ describe('partial agent execution', () => {
         assert.match(commitMessage, /Partial execution:/);
         assert.doesNotMatch(comment, /Applied the requested follow-up changes/);
     });
+
+    test('keeps the successful no-change follow-up completion comment unchanged', async () => {
+        const result: ClaudeCodeResponse = {
+            ...partialClaudeResult('max_turns'),
+            success: true,
+            modifiedFiles: [],
+            finalResult: null,
+            terminationReason: undefined,
+            error: undefined,
+            summary: 'Validation passed; the existing implementation already satisfies the request.',
+        };
+        const requestedComments = [{ id: 100, body: 'Run validation only', author: 'reviewer', createdAt: new Date().toISOString() }];
+
+        const comment = await buildCompletionComment(null, requestedComments, {
+            changesSummary: result.summary || '',
+            commitMessage: '',
+            llm: 'claude-test',
+            authorsText: '@reviewer',
+        }, result);
+
+        assert.match(comment, /Analyzed the follow-up request/);
+        assert.match(comment, /No code changes were necessary based on the current state of the branch/);
+        assert.doesNotMatch(comment, /interrupted before completion/);
+        assert.match(comment, /<!-- propr:work-evidence phase=completed trigger-comment-ids=100 -->/);
+    });
+
+    test('reports an interrupted max-turn follow-up with no changes to publish', async () => {
+        const result: ClaudeCodeResponse = {
+            ...partialClaudeResult('max_turns'),
+            modifiedFiles: [],
+            summary: 'Ran the requested validation; one follow-up check still needs review.',
+        };
+        const requestedComments = [{ id: 101, body: 'Run validation only', author: 'reviewer', createdAt: new Date().toISOString() }];
+
+        const comment = await buildCompletionComment(null, requestedComments, {
+            changesSummary: result.summary || '',
+            commitMessage: '',
+            llm: 'claude-test',
+            authorsText: '@reviewer',
+        }, result);
+
+        assert.match(comment, /interrupted before completion/);
+        assert.match(comment, /maximum turn limit/);
+        assert.match(comment, /Last Agent Update/);
+        assert.match(comment, /Ran the requested validation/);
+        assert.match(comment, /No Code Changes to Publish/);
+        assert.match(comment, /No code changes were produced to publish before the interruption/);
+        assert.match(comment, /Remaining Work/);
+        assert.match(comment, /<!-- propr:work-evidence phase=completed trigger-comment-ids=101 -->/);
+        assert.match(comment, /Processing comment ID: 101✓/);
+        assert.doesNotMatch(comment, /Analyzed the follow-up request/);
+    });
+
+    test('reports a timed-out follow-up with no changes to publish as incomplete', async () => {
+        const result: ClaudeCodeResponse = {
+            ...partialClaudeResult('timeout'),
+            modifiedFiles: [],
+            summary: 'Validation started and the unit suite passed before the deadline.',
+        };
+        const requestedComments = [{ id: 102, body: 'Run validation only', author: 'reviewer', createdAt: new Date().toISOString() }];
+
+        const comment = await buildCompletionComment(null, requestedComments, {
+            changesSummary: result.summary || '',
+            commitMessage: '',
+            llm: 'claude-test',
+            authorsText: '@reviewer',
+        }, result);
+
+        assert.match(comment, /interrupted before completion/);
+        assert.match(comment, /execution time limit/);
+        assert.match(comment, /No Code Changes to Publish/);
+        assert.match(comment, /Remaining Work/);
+        assert.doesNotMatch(comment, /Analyzed the follow-up request/);
+    });
 });
