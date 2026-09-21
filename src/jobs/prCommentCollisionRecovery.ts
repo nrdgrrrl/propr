@@ -211,11 +211,35 @@ async function scheduleRecoveryAndRelease(
 export async function evaluatePRCommentPreExecutionRecovery(
     params: PreExecutionRecoveryParams,
 ): Promise<PreExecutionRecoveryDecision> {
-    const { job, taskId, correlatedLogger } = params;
+    const { job, taskId, correlatedLogger, pickedUpComments, redisClient, releaseLock } = params;
     const cancellationDecision = await evaluatePRCommentCancellation(params);
     const { preexistingState } = cancellationDecision;
     if (cancellationDecision.result) return cancellationDecision;
     const collisionCancellation = isContainerCollisionCancellation(preexistingState);
+
+    // A stale BullMQ retry must never reopen a task that another execution has
+    // already completed or finally failed.  Collision-owned cancellation is
+    // intentionally handled below so its existing replacement recovery remains
+    // intact; explicit user cancellation was handled above.
+    if (preexistingState
+        && (preexistingState.state === TaskStates.COMPLETED || preexistingState.state === TaskStates.FAILED)
+        && !collisionCancellation) {
+        try {
+            await restorePendingComments(pickedUpComments, {
+                repoOwner: job.data.repoOwner,
+                repoName: job.data.repoName,
+                pullRequestNumber: job.data.pullRequestNumber,
+                redisClient,
+            });
+        } finally {
+            await releaseLock();
+        }
+        correlatedLogger.info({ taskId, currentState: preexistingState.state }, 'Task was already terminal; not starting a duplicate PR comment agent');
+        return {
+            preexistingState,
+            result: { status: preexistingState.state, reason: 'task_already_terminal' },
+        };
+    }
 
     const collisionAncestorTaskIds = [...new Set([
         ...(job.data.containerCollisionTaskIds ?? []),

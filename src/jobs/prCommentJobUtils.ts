@@ -16,6 +16,7 @@ import { buildWorkEvidenceMarker, filterRealComments } from '../shared/workEvide
 import type { ReasoningLevel } from '@propr/shared';
 import { releasePRProcessingLock } from './prProcessingLock.js';
 import { schedulePRCommentUsageLimitRetry } from './prCommentUsageLimitRecovery.js';
+import { getPRCommentFailureTransition } from './prCommentRetryLifecycle.js';
 
 export function toClaudeResult(response: ClaudeCodeResponse): ClaudeResult {
     return {
@@ -255,10 +256,26 @@ async function handleUserCancellation(options: JobErrorOptions, errorMessage: st
     }
 }
 
-async function handleGenericError(error: Error, options: JobErrorOptions): Promise<void> {
+async function handleGenericError(error: Error, job: Job<CommentJobData>, options: JobErrorOptions): Promise<void> {
     const { pullRequestNumber, repoOwner, repoName, authorsText, unprocessedComments, octokit, startingWorkComment, claudeResult, correlationId, correlatedLogger, stateManager, taskId } = options;
     handleError(error, 'Failed to process PR comment job', { correlationId });
     const sanitizedMessage = sanitizeErrorMessage(error.message);
+    const failureTransition = getPRCommentFailureTransition(job);
+    if (failureTransition.retryPending) {
+        await stateManager.updateTaskState(taskId, TaskStates.PROCESSING, {
+            isRetry: true,
+            reason: 'PR comment processing attempt failed; retry pending',
+            error: { message: sanitizedMessage, category: 'retryable' },
+            historyMetadata: {
+                retryPending: true,
+                attemptsMade: job.attemptsMade,
+                maxAttempts: job.opts.attempts ?? 1,
+            },
+        });
+        correlatedLogger.warn({ taskId, attemptsMade: job.attemptsMade, maxAttempts: job.opts.attempts ?? 1 }, 'PR comment attempt failed; preserving nonterminal state for BullMQ retry');
+        return;
+    }
+
     await stateManager.updateTaskState(taskId, TaskStates.FAILED, { reason: 'PR comment processing failed', error: { message: sanitizedMessage } });
     if (shouldRecordFailureLLMMetrics(claudeResult, options.llmMetricsRecorded === true)) {
         try {
@@ -304,7 +321,7 @@ export async function handleJobError(error: Error, job: Job<CommentJobData>, opt
     } else if (isUserCancelled) {
         await handleUserCancellation(options, error.message);
     } else {
-        await handleGenericError(error, options);
+        await handleGenericError(error, job, options);
     }
 }
 

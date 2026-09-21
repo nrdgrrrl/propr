@@ -20,7 +20,7 @@ await mock.module('@propr/core', {
         }),
         inspectLegacyDockerContainerLivenessForTask: mock.fn(async () => legacyLiveness),
         issueQueue: { add: queueAdd },
-        TaskStates: { PENDING: 'pending', PROCESSING: 'processing', CANCELLED: 'cancelled' },
+        TaskStates: { PENDING: 'pending', PROCESSING: 'processing', COMPLETED: 'completed', FAILED: 'failed', CANCELLED: 'cancelled' },
         getPendingPrCommentsKey: (owner: string, repo: string, pr: number) => `pending-pr-comments:${owner}:${repo}:${pr}`,
     },
 });
@@ -278,5 +278,38 @@ describe('PR comment container collision recovery', () => {
         assert.equal(decision.reason, 'task_already_cancelled');
         assert.deepStrictEqual(restored.map(value => JSON.parse(value).id), [900]);
         assert.equal(queueAdd.mock.callCount(), 0);
+    });
+
+    test('does not launch a duplicate agent for an already completed or failed retry', async (t) => {
+        for (const terminalState of ['completed', 'failed'] as const) {
+            await t.test(terminalState, async () => {
+                queueAdd.mock.resetCalls();
+                const restored: string[] = [];
+                const comment = { id: 901, body: 'keep this', author: 'alice', type: 'issue' as const };
+                const decision = await evaluatePRCommentPreExecutionRecovery({
+                    job: {
+                        id: `terminal-${terminalState}`,
+                        data: { pullRequestNumber: 42, repoOwner: 'acme', repoName: 'web' },
+                    } as never,
+                    taskId: `terminal-${terminalState}`,
+                    stateManager: {
+                        getTaskState: async () => ({ state: terminalState, history: [] }),
+                    } as never,
+                    redisClient: {
+                        async lrange() { return []; },
+                        async lpush(_key: string, ...values: string[]) { restored.push(...values); return values.length; },
+                        async expire() { return 1; },
+                    } as never,
+                    pickedUpComments: [comment],
+                    correlatedLogger: { info: mock.fn(), warn: mock.fn() } as never,
+                    releaseLock: async () => {},
+                });
+
+                assert.equal(decision.result?.reason, 'task_already_terminal');
+                assert.equal(decision.result?.status, terminalState);
+                assert.equal(queueAdd.mock.callCount(), 0);
+                assert.deepStrictEqual(restored.map(value => JSON.parse(value).id), [901]);
+            });
+        }
     });
 });
