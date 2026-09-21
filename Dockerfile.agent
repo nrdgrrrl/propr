@@ -266,6 +266,7 @@ COPY --chown=node:node \
     scripts/opencode-entrypoint.sh \
     scripts/vibe-entrypoint.sh \
     /home/node/
+COPY --chown=node:node scripts/repo-python-bootstrap.sh /usr/local/bin/propr-python-bootstrap
 COPY --chown=node:node scripts/opencode-run.sh /usr/local/bin/opencode-run
 COPY --chown=node:node scripts/vibe-prompt-file-runner.py /usr/local/bin/propr-vibe-prompt-file
 RUN set -eu; \
@@ -286,6 +287,7 @@ RUN set -eu; \
         /home/node/antigravity-entrypoint.sh \
         /home/node/opencode-entrypoint.sh \
         /home/node/vibe-entrypoint.sh \
+        /usr/local/bin/propr-python-bootstrap \
         /usr/local/bin/opencode-run \
         /usr/local/bin/propr-vibe-prompt-file \
     && claude --version \

@@ -28,6 +28,8 @@ describe('wrapDockerRunArgsWithRepoSetup', () => {
         assert.match(wrapperScript, /ProPR repo setup hook failed with exit code/);
         assert.match(wrapperScript, /PROPR_REPO_SETUP_STRICT/);
         assert.match(wrapperScript, /Continuing so the agent can inspect and repair/);
+        assert.match(wrapperScript, /propr-python-bootstrap/);
+        assert.match(wrapperScript, /PROPR_PYTHON_BOOTSTRAP/);
         assert.match(wrapperScript, /exec "\$entrypoint" "\$@"/);
         assert.ok(wrapped.includes('no-new-privileges'));
         assert.deepStrictEqual(wrapped.slice(1, 9), [
@@ -120,6 +122,18 @@ describe('wrapDockerRunArgsWithRepoSetup', () => {
             assert.doesNotMatch(executableLines, /\bsudo\b/, `${scriptPath} should not invoke sudo`);
             assert.match(script, /exec su-exec node env HOME=\/home\/node USER=node LOGNAME=node "\$@"/);
         }
+    });
+
+    test('the agent image includes the repository Python bootstrap helper', () => {
+        const dockerfile = fs.readFileSync('Dockerfile.agent', 'utf8');
+        const bootstrap = fs.readFileSync('scripts/repo-python-bootstrap.sh', 'utf8');
+
+        assert.match(dockerfile, /scripts\/repo-python-bootstrap\.sh \/usr\/local\/bin\/propr-python-bootstrap/);
+        assert.match(dockerfile, /\/usr\/local\/bin\/propr-python-bootstrap/);
+        assert.match(bootstrap, /uv venv \.venv/);
+        assert.match(bootstrap, /uv pip install --python \.venv\/bin\/python -r/);
+        assert.match(bootstrap, /requirements-dev\.txt/);
+        assert.match(bootstrap, /PROPR_PYTHON_BOOTSTRAP/);
     });
 
     test('throws when the configured docker image cannot be found', () => {

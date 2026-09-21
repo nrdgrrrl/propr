@@ -31,10 +31,12 @@ setup_script="\${PROPR_WORKSPACE:-/home/node/workspace}/.propr/setup.sh"
 export PROPR_WORKSPACE="\${PROPR_WORKSPACE:-/home/node/workspace}"
 export PROPR_CACHE_DIR="\${PROPR_CACHE_DIR:-/tmp/git-processor/propr-cache/\${PROPR_AGENT_TYPE:-agent}}"
 
-if [ "\${PROPR_REPO_SETUP:-1}" != "0" ] && [ -f "$setup_script" ]; then
+if [ "\${PROPR_REPO_SETUP:-1}" != "0" ]; then
     mkdir -p "$PROPR_CACHE_DIR" 2>/dev/null || true
     chown node:node "$PROPR_CACHE_DIR" 2>/dev/null || true
+fi
 
+if [ "\${PROPR_REPO_SETUP:-1}" != "0" ] && [ -f "$setup_script" ]; then
     echo "Running ProPR repo setup hook: $setup_script" >&2
     set +e
     if [ "$(id -u)" = "0" ] && command -v su-exec >/dev/null 2>&1 && id node >/dev/null 2>&1; then
@@ -55,6 +57,28 @@ if [ "\${PROPR_REPO_SETUP:-1}" != "0" ] && [ -f "$setup_script" ]; then
         echo "Continuing so the agent can inspect and repair repository setup/build issues" >&2
     else
         echo "ProPR repo setup hook completed" >&2
+    fi
+fi
+
+if [ "\${PROPR_REPO_SETUP:-1}" != "0" ] && [ "\${PROPR_PYTHON_BOOTSTRAP:-1}" != "0" ]; then
+    echo "Checking whether repository Python validation needs a local environment" >&2
+    set +e
+    if [ "$(id -u)" = "0" ] && command -v su-exec >/dev/null 2>&1 && id node >/dev/null 2>&1; then
+        cd "$PROPR_WORKSPACE"
+        su-exec node env HOME=/home/node USER=node LOGNAME=node /usr/local/bin/propr-python-bootstrap </dev/null >&2
+        python_bootstrap_exit=$?
+    else
+        cd "$PROPR_WORKSPACE"
+        /usr/local/bin/propr-python-bootstrap </dev/null >&2
+        python_bootstrap_exit=$?
+    fi
+    set -e
+    if [ "$python_bootstrap_exit" -ne 0 ]; then
+        echo "ProPR Python bootstrap failed with exit code $python_bootstrap_exit" >&2
+        if [ "\${PROPR_REPO_SETUP_STRICT:-0}" = "1" ]; then
+            exit "$python_bootstrap_exit"
+        fi
+        echo "Continuing so the agent can inspect and repair repository Python setup" >&2
     fi
 fi
 

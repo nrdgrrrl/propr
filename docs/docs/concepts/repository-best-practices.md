@@ -40,7 +40,7 @@ Broad tasks produce PRs that stall in review. Prefer smaller issues that produce
 
 ## Match The Agent Environment To CI
 
-Agents run in isolated execution containers. Use `.propr/setup.sh` (scaffolded by `propr init`) to install the dependencies and task-specific tooling the agent needs, so it can build and run the project the same way CI does. Keeping the agent environment and CI aligned means changes that look right in the run also pass the pipeline, and it lets `/fix` repair environment problems in scope. See [ProPR CLI](../features/propr-cli.md).
+Agents run in isolated execution containers. Use `.propr/setup.sh` (scaffolded by `propr init`) to install the dependencies and task-specific tooling the agent needs, so it can build and run the project the same way CI does. As a safe fallback, a fresh task detects repositories whose normal validation explicitly invokes a root `.venv/bin/python` and uses `uv` to build that venv from `requirements-dev.txt` (or `requirements.txt`). Keep other Python environment conventions in `.propr/setup.sh`. Keeping the agent environment and CI aligned means changes that look right in the run also pass the pipeline, and it lets `/fix` repair environment problems in scope. See [ProPR CLI](../features/propr-cli.md).
 
 ## Document Conventions
 
