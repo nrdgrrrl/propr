@@ -4,7 +4,7 @@ Third-Party Licenses
 This file lists every third-party package bundled in the Propr Docker images,
 its license, and (where required) the full license text.
 
-Generated: 2026-08-14
+Generated: 2026-09-21
 See NOTICE for a higher-level summary and end-user obligations.
 
 ---
@@ -304,8 +304,8 @@ below is bundled in the propr/app image under the stated license.
 ├─ Apache-2.0: 8
 ├─ BSD-3-Clause: 4
 ├─ Custom: https://www.npmjs.com/package/: 2
+├─ UNKNOWN: 2
 ├─ Custom: https://img.shields.io/badge/Node.js-22: 1
-├─ UNKNOWN: 1
 ├─ BSD-2-Clause: 1
 ├─ (MIT OR WTFPL): 1
 ├─ MIT*: 1
@@ -350,6 +350,7 @@ below is bundled in the propr/app image under the stated license.
 "@octokit/types@14.1.0","MIT","https://github.com/octokit/types.ts"
 "@octokit/types@16.0.0","MIT","https://github.com/octokit/types.ts"
 "@propr/core@0.8.15","UNKNOWN",""
+"@propr/local-setup@0.8.15","UNKNOWN",""
 "@redis/bloom@5.12.1","MIT","https://github.com/redis/node-redis"
 "@redis/client@5.12.1","MIT","https://github.com/redis/node-redis"
 "@redis/json@5.12.1","MIT","https://github.com/redis/node-redis"
@@ -522,7 +523,7 @@ below is bundled in the propr/app image under the stated license.
 "propr@0.8.15","UNLICENSED","https://github.com/integry/propr"
 "proxy-addr@2.0.7","MIT","https://github.com/jshttp/proxy-addr"
 "pump@3.0.2","MIT","https://github.com/mafintosh/pump"
-"qs@6.15.3","BSD-3-Clause","https://github.com/ljharb/qs"
+"qs@6.16.0","BSD-3-Clause","https://github.com/ljharb/qs"
 "quick-format-unescaped@4.0.4","MIT","https://github.com/davidmarkclements/quick-format"
 "random-bytes@1.0.0","MIT","https://github.com/crypto-utils/random-bytes"
 "range-parser@1.2.1","MIT","https://github.com/jshttp/range-parser"
