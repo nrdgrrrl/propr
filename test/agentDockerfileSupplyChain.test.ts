@@ -79,6 +79,12 @@ test('unified agent image bakes a pinned system Chromium for Playwright', () => 
   assert.match(dockerfile, /chromium --version/);
 });
 
+test('the production app image includes every agent-build script required by Dockerfile.agent', () => {
+  const appDockerfile = readFileSync(new URL('../docker/Dockerfile.app.prod', import.meta.url), 'utf8');
+
+  assert.match(appDockerfile, /COPY scripts\/playwright-chromium\.sh \.\/scripts\/playwright-chromium\.sh/);
+});
+
 test('unified agent image installs the pinned Godot 4.7 Linux x86_64 binary', () => {
   assert.match(dockerfile, /^ARG GODOT_VERSION=4\.7-stable$/m);
   assert.match(dockerfile, /^ARG GODOT_LINUX_X86_64_SHA256=[a-f0-9]{64}$/m);
