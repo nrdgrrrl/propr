@@ -38,7 +38,7 @@ export const AGENT_CLI_TAGS: Record<AgentType, string[]> = {
  */
 export const AGENT_DEFAULT_VERSIONS: Record<AgentType, string> = {
     claude: '2.1.263',
-    codex: '0.153.4',
+    codex: '0.155.1',
     antigravity: '1.1.27',
     opencode: '1.18.29',
     vibe: '2.25.0'

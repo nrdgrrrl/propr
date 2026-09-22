@@ -54,9 +54,15 @@ test('OpenCode catalog matches the current built-in free model set', () => {
     ]);
 });
 
-test('GPT-6 Astra is the preferred Codex default and Codex CLI pin supports it', () => {
-    assert.strictEqual(CODEX_MODELS[0]?.id, 'gpt-6-astra');
-    assert.strictEqual(AGENT_DEFAULTS.codex.defaultModels[0], 'gpt-6-astra');
+test('GPT-6 Luna is the preferred Codex default and GPT-6 models are catalogued', () => {
+    assert.strictEqual(CODEX_MODELS[0]?.id, 'gpt-6-luna');
+    assert.strictEqual(AGENT_DEFAULTS.codex.defaultModels[0], 'gpt-6-luna');
+    for (const modelId of ['gpt-6-luna', 'gpt-6-sol'] as const) {
+        assert.strictEqual(MODEL_INFO_MAP[modelId]?.openRouterId, `openai/${modelId}`);
+        assert.strictEqual(MODEL_INFO_MAP[modelId]?.minAgentVersion, '0.153.1');
+        assert.strictEqual(MODEL_INFO_MAP[modelId]?.contextWindow, '1.05M');
+        assert.strictEqual(MODEL_INFO_MAP[modelId]?.maxTokens, 1050000);
+    }
     assert.strictEqual(MODEL_INFO_MAP['gpt-6-astra']?.githubLabel, 'llm-codex-astra');
     assert.strictEqual(MODEL_INFO_MAP['gpt-6-astra']?.openRouterId, 'openai/gpt-6-astra');
     assert.strictEqual(MODEL_INFO_MAP['gpt-6-astra']?.minAgentVersion, '0.153.1');

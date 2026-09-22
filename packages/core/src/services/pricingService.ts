@@ -103,6 +103,12 @@ const OFFICIAL_MODEL_PRICING: Readonly<Record<string, ModelPricing>> = {
         prompt: perMillion(10), completion: perMillion(50),
         cacheCreation: perMillion(12.5), cacheRead: perMillion(1)
     },
+    'openai/gpt-6-sol': {
+        prompt: perMillion(2), completion: perMillion(10)
+    },
+    'openai/gpt-6-luna': {
+        prompt: perMillion(0.1), completion: perMillion(0.5)
+    },
     'openai/gpt-5.6-sol': {
         prompt: perMillion(4), completion: perMillion(20),
         cacheCreation: perMillion(5), cacheRead: perMillion(0.4)

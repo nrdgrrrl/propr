@@ -75,4 +75,15 @@ describe('provider API pricing', () => {
       cacheRead: 1 / 1_000_000,
     });
   });
+
+  test('uses the published GPT-6 Sol and Luna API rates', () => {
+    assert.deepStrictEqual(getOfficialModelPricing('openai/gpt-6-sol'), {
+      prompt: 2 / 1_000_000,
+      completion: 10 / 1_000_000,
+    });
+    assert.deepStrictEqual(getOfficialModelPricing('openai/gpt-6-luna'), {
+      prompt: 0.1 / 1_000_000,
+      completion: 0.5 / 1_000_000,
+    });
+  });
 });
