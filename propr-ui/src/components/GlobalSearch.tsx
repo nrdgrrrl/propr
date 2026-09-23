@@ -4,6 +4,7 @@ import { Search, X, ScrollText, ListTodo, GitBranch, Loader2, ChevronRight } fro
 import { useGlobalSearch, TaskSearchResult } from '../hooks/useGlobalSearch';
 import { DraftListItem } from '../api/plannerApi';
 import { MonitoredRepo } from '../api/proprApi';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 // Utility function for formatting time ago
 const formatTimeAgo = (dateString: string): string => {
@@ -138,7 +139,7 @@ const GlobalSearch: React.FC<GlobalSearchProps> = ({ inputRef: externalInputRef 
   };
 
   const handleTaskClick = (task: TaskSearchResult) => {
-    navigate(`/tasks/${task.id}`);
+    navigate(taskDetailsPath(task.id));
     clearSearch();
   };
 

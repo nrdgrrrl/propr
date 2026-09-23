@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight
 import { Link } from 'react-router-dom';
 import { LlmLogEntry, LlmLogsPagination } from '../api/llmLogsApi';
 import { getWorkTypeLabel } from './llmLogsUtils';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 // Status icon component
 export const StatusIcon: React.FC<{ success: boolean }> = ({ success }) => {
@@ -107,7 +108,7 @@ const WorkReferenceSection: React.FC<{ log: LlmLogEntry }> = ({ log }) => {
           <div>
             <span className="text-gray-500">Task ID:</span>{' '}
             <Link
-              to={`/tasks/${log.taskId}`}
+              to={taskDetailsPath(log.taskId)}
               className="font-mono text-teal-600 hover:text-teal-800 hover:underline"
               onClick={(e) => e.stopPropagation()}
             >

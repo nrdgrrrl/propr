@@ -1,5 +1,6 @@
 import type { Notification } from '@propr/shared';
 import { summaryBrowserPath } from '../utils/summaryBrowser';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 export const INBOX_GROUPS = [
   'Needs attention',
@@ -47,9 +48,9 @@ export function notificationHref(notification: Notification): string {
   if (notification.action?.type === 'navigate') return notification.action.href;
   switch (notification.target.type) {
     case 'plan': return `/studio/${encodeURIComponent(notification.target.draftId)}`;
-    case 'task': return `/tasks/${encodeURIComponent(notification.target.taskId)}`;
+    case 'task': return taskDetailsPath(notification.target.taskId);
     case 'review': return notification.target.taskId
-      ? `/tasks/${encodeURIComponent(notification.target.taskId)}`
+      ? taskDetailsPath(notification.target.taskId)
       : '/tasks';
     case 'pull_request': return '/repositories';
     case 'indexing': {

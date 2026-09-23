@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bot, ScrollText, ListTodo, ChevronRight, RefreshCw, WifiOff } from 'lucide-react';
 import { RunningItem } from '../hooks/useHeaderStats';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 // Utility function for formatting time ago
 const formatTimeAgo = (dateString: string): string => {
@@ -74,7 +75,7 @@ const AIActivityMonitor: React.FC<AIActivityMonitorProps> = ({ runningItems, run
     const destination = item.type === 'plan'
       ? `/studio/${item.id}`
       : item.navigationId
-        ? `/tasks/${item.navigationId}`
+        ? taskDetailsPath(item.navigationId)
         : undefined;
     if (!destination) return;
 

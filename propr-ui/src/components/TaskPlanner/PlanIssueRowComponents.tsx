@@ -11,6 +11,7 @@ import AgentModelSelector from './AgentModelSelector';
 import MarkdownRenderer from '../TaskDetails/MarkdownRenderer';
 import { getModelName, getImplementButtonClassName, getImplementButtonTitle } from './planIssueRowUtils';
 import { AuthenticatedAttachmentImage } from './AuthenticatedAttachmentImage';
+import { taskDetailsPath } from '../../utils/taskDetailsPath';
 
 interface UltrafixSettingsControlsProps { enabled: boolean; goal: number | null | undefined; maxCycles: number | null | undefined; onGoalChange: (value: number | null) => void; onMaxCyclesChange: (value: number | null) => void; goalPlaceholder: string; maxPlaceholder: string; inputClassName: string; goalInputWidthClassName: string; maxInputWidthClassName: string; containerClassName?: string; errorClassName?: string; }
 
@@ -168,7 +169,7 @@ export const FollowupCount: React.FC<FollowupCountProps> = ({ count }) => (
 );
 
 export interface ViewProgressLinkProps { taskId: string; }
-export const ViewProgressLink: React.FC<ViewProgressLinkProps> = ({ taskId }) => (<Link to={`/tasks/${taskId}`} className="inline-flex items-center gap-1 font-mono text-xs px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded-sm text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors" onClick={(e) => e.stopPropagation()}><Eye size={12} />View Progress</Link>);
+export const ViewProgressLink: React.FC<ViewProgressLinkProps> = ({ taskId }) => (<Link to={taskDetailsPath(taskId)} className="inline-flex items-center gap-1 font-mono text-xs px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded-sm text-blue-700 hover:bg-blue-100 hover:border-blue-300 transition-colors" onClick={(e) => e.stopPropagation()}><Eye size={12} />View Progress</Link>);
 
 export interface RowActionsProps {
   isPending: boolean;

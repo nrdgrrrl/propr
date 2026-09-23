@@ -24,6 +24,7 @@ import {
 import { useDebouncedCallback } from './TaskList/hooks';
 import { useLiveRefreshScheduler } from '../hooks/useLiveRefreshScheduler';
 import type { TaskUpdatePayload } from '@propr/shared';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 const createRepoOptions = (repositories: Array<{ repository: string; total: number }>): RepoOption[] => {
   const totalCount = repositories.reduce((sum, repo) => sum + repo.total, 0);
@@ -266,7 +267,7 @@ const TaskList: React.FC<TaskListProps> = ({ limit, showViewAll = false, hideFil
   const toggleGroup = useMemo(() => createToggleGroupHandler(setExpandedGroups), []);
 
   const handleRowClick = useCallback((taskId: string) => {
-    navigate(`/tasks/${taskId}`);
+    navigate(taskDetailsPath(taskId));
   }, [navigate]);
 
   const scopeState = resolveTaskScopeState(loadedScope, queryScope, tasks, groupedTasks, error);

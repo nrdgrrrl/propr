@@ -8,6 +8,7 @@ import { getStatusBadgeStyle } from './headerUtils';
 import { formatAgentLabel } from '../utils/agentStatus';
 import { ProviderLogo } from './ui/ProviderLogo';
 import HeaderResourceStatus from './HeaderResourceStatus';
+import { taskDetailsPath } from '../utils/taskDetailsPath';
 
 interface TaskGroup { key: string; repoOwner: string; repoName: string; prNumber?: number; issueNumber?: number; latestTask: { id: string; status: string; createdAt: string; title?: string; }; allTasks: unknown[]; }
 
@@ -147,7 +148,7 @@ interface TasksDropdownProps { taskGroups: TaskGroup[]; isOpen: boolean; onClose
 const TasksDropdown: React.FC<TasksDropdownProps> = ({ taskGroups, isOpen, onClose, onDismiss }) => {
   const navigate = useNavigate();
   const displayGroups = taskGroups.slice(0, 10);
-  const handleTaskClick = (group: TaskGroup) => { onClose(); navigate(`/tasks/${group.latestTask.id}`); };
+  const handleTaskClick = (group: TaskGroup) => { onClose(); navigate(taskDetailsPath(group.latestTask.id)); };
   const handleViewAll = () => { onClose(); navigate('/tasks'); };
   // Pass the group key and latest task timestamp to auto-dismiss older followup tasks
   const handleDismiss = (e: React.MouseEvent, group: TaskGroup) => { e.stopPropagation(); onDismiss(group.key, group.latestTask.createdAt); };
