@@ -1,4 +1,5 @@
 import { SimpleGit } from 'simple-git';
+import { execFileSync } from 'node:child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import logger from '../utils/logger.js';
@@ -264,14 +265,65 @@ export async function safePruneWorktrees(localRepoPath: string, minAgeHours: num
     return { pruned, skipped };
 }
 
+/**
+ * Resolve the writable Git metadata for a linked worktree.
+ *
+ * Git keeps a linked worktree's index under the common repository's
+ * `.git/worktrees/<name>` directory, not under the visible worktree path.
+ * Keep this constrained to Git's per-worktree metadata so permission repair
+ * cannot accidentally walk the common repository itself.
+ */
+export async function resolveLinkedWorktreeGitDir(worktreePath: string): Promise<string> {
+    const worktreeGit = createHooklessGit(worktreePath);
+    const gitDir = path.resolve(worktreePath, (await worktreeGit.raw(['rev-parse', '--git-dir'])).trim());
+    const commonDir = await resolveGitCommonDir(worktreePath);
+    const worktreesDir = path.join(commonDir, 'worktrees');
+    const relativeMetadataPath = path.relative(worktreesDir, gitDir);
+
+    if (!relativeMetadataPath
+        || relativeMetadataPath === '..'
+        || relativeMetadataPath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativeMetadataPath)) {
+        throw new Error(`Git metadata path is not a linked-worktree directory: ${gitDir}`);
+    }
+
+    return gitDir;
+}
+
+/** Resolve the shared Git metadata directory used by a repository/worktree. */
+export async function resolveGitCommonDir(repositoryPath: string): Promise<string> {
+    const git = createHooklessGit(repositoryPath);
+    return path.resolve(repositoryPath, (await git.raw(['rev-parse', '--git-common-dir'])).trim());
+}
+
+function setAgentOwnership(targets: string[]): void {
+    execFileSync('sudo', ['chown', '-R', '1000:1000', '--', ...targets], {
+        stdio: 'inherit',
+        timeout: 10000,
+    });
+}
+
+/**
+ * Make the shared repository metadata writable by the agent container.
+ * Git writes objects, refs, and reflogs in this common directory even when
+ * the command runs from a linked worktree.
+ */
+export async function setupRepositoryPermissions(localRepoPath: string, repoName: string): Promise<void> {
+    try {
+        const commonGitDir = await resolveGitCommonDir(localRepoPath);
+        setAgentOwnership([commonGitDir]);
+        logger.debug({ localRepoPath, commonGitDir, repoName }, 'Set shared Git metadata ownership to UID 1000 for container compatibility');
+    } catch (ownershipError) {
+        logger.warn({ localRepoPath, repoName, error: (ownershipError as Error).message }, 'Failed to set shared Git metadata ownership - container may have permission issues');
+    }
+}
+
 export async function setupWorktreePermissions(worktreePath: string, branchName: string, issueId: number | string | null): Promise<void> {
     try {
-        const { execFileSync } = await import('child_process');
-        execFileSync('sudo', ['chown', '-R', '1000:1000', '--', worktreePath], {
-            stdio: 'inherit',
-            timeout: 10000
-        });
-        logger.debug({ worktreePath, branchName, issueId }, 'Set worktree ownership to UID 1000 for container compatibility');
+        const linkedWorktreeGitDir = await resolveLinkedWorktreeGitDir(worktreePath);
+        const commonGitDir = await resolveGitCommonDir(worktreePath);
+        setAgentOwnership([worktreePath, linkedWorktreeGitDir, commonGitDir]);
+        logger.debug({ worktreePath, linkedWorktreeGitDir, commonGitDir, branchName, issueId }, 'Set worktree and shared Git metadata ownership to UID 1000 for container compatibility');
     } catch (chownError) {
         logger.warn({ worktreePath, branchName, issueId, error: (chownError as Error).message }, 'Failed to set worktree ownership - container may have permission issues');
     }

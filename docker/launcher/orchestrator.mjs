@@ -275,6 +275,7 @@ export function resolveConfig(env = process.env, overrides = {}) {
         : authorizedEnvFileValues
             ? authorizedEnvFileValues[name] || undefined
             : envFileValueFrom(envFileLocal, name) || undefined;
+    const hostTempRoot = (overrides.hostTempRoot ?? get('PROPR_HOST_TEMP_ROOT')) || undefined;
 
     const hostData = overrides.hostData ?? env.PROPR_DATA_DIR;
     const hostLogs = overrides.hostLogs ?? env.PROPR_LOGS_DIR;
@@ -325,9 +326,15 @@ export function resolveConfig(env = process.env, overrides = {}) {
     const vibePromptCacheDir = get('VIBE_PROMPT_CACHE_DIR') || '/tmp/propr-vibe-prompts';
     // The host bind path defaults to a per-user private /tmp location when Vibe
     // is enabled, so prompt files are not exposed through a shared 0777 cache.
-    // An explicit HOST_VIBE_PROMPT_CACHE_DIR is still honored and validated.
+    // An explicit HOST_VIBE_PROMPT_CACHE_DIR takes precedence over that derived
+    // location and remains available for an intentional cache-only override.
     const vibeEnabled = Boolean(hostVibeDir || mistralApiKey);
-    const hostVibePromptCacheDir = get('HOST_VIBE_PROMPT_CACHE_DIR') || (vibeEnabled ? defaultHostVibePromptCacheDir() : undefined);
+    const hostVibePromptCacheDir = get('HOST_VIBE_PROMPT_CACHE_DIR')
+        || (vibeEnabled
+            ? (hostTempRoot
+                ? resolveHostTempPath('/tmp/propr-vibe-prompts', hostTempRoot)
+                : defaultHostVibePromptCacheDir())
+            : undefined);
 
     // Host path to the GitHub App private key (.pem). When set, the key is
     // bind-mounted into the app containers (HOST:HOST, read-only) and
@@ -365,6 +372,7 @@ export function resolveConfig(env = process.env, overrides = {}) {
 
     return Object.freeze({
         stack, network, envFileLocal, envFileHost, nodeEnv,
+        hostTempRoot,
         validateHostPaths: overrides.validateHostPaths === true,
         hostData, hostLogs, hostRepos, managedCredentialsDir,
         apiPort, uiPort, docsPort, redisExternalPort, docsEnabled,
@@ -484,6 +492,15 @@ function vibePromptCacheArgs(cfg) {
         '-e', `HOST_VIBE_PROMPT_CACHE_DIR=${cfg.hostVibePromptCacheDir}`,
         '-e', 'VIBE_PROMPT_CACHE_HOST_MOUNTED=1',
     ];
+}
+
+// Keep the service container's legacy /tmp path stable while mapping its bind
+// source to the configured private host subtree.
+function resolveHostTempPath(containerPath, hostTempRoot) {
+    if (!hostTempRoot) return containerPath;
+    const prefix = '/tmp/';
+    if (!containerPath.startsWith(prefix)) return containerPath;
+    return join(resolve(hostTempRoot), containerPath.slice(prefix.length));
 }
 
 // Tunnel-related env propagated into the API container for status/debugging and
@@ -951,10 +968,11 @@ function appBaseArgs(cfg) {
         '-v', `${cfg.hostLogs}:/usr/src/app/logs`,
         '-v', `${cfg.hostData}:/usr/src/app/data`,
         '-v', '/var/run/docker.sock:/var/run/docker.sock',
-        '-v', '/tmp/git-processor:/tmp/git-processor',
+        '-v', `${resolveHostTempPath('/tmp/git-processor', cfg.hostTempRoot)}:/tmp/git-processor`,
         '--add-host', 'host.docker.internal:host-gateway',
         '-e', `REDIS_HOST=${cfg.stack}-redis`,
         '-e', `PROPR_STACK=${cfg.stack}`,
+        ...(cfg.hostTempRoot ? ['-e', `PROPR_HOST_TEMP_ROOT=${cfg.hostTempRoot}`] : []),
         '-e', 'PROPR_CONTAINERIZED=1',
         // Every app container imports @propr/core's githubAuth, which needs the
         // GitHub App private key — so mount it for all of them when provided.
@@ -1015,14 +1033,14 @@ export function buildServiceSpec(cfg, service) {
         case 'daemon':
             return appSpec(cfg, ['dist/src/daemon.js'], [
                 '-v', `${cfg.envFileHost}:/usr/src/app/.env:ro`,
-                '-v', '/tmp/pr-worktrees:/tmp/pr-worktrees',
+                '-v', `${resolveHostTempPath('/tmp/pr-worktrees', cfg.hostTempRoot)}:/tmp/pr-worktrees`,
                 '-e', `GITHUB_BOT_USERNAME=${cfg.githubBotUsername}`,
                 '-e', 'STAGING_ENV_FILE=/usr/src/app/.env',
             ]);
         case 'worker':
             return appSpec(cfg, ['dist/src/worker.js'], [
                 '-v', `${cfg.hostRepos}:/usr/src/app/repos`,
-                '-v', '/tmp/claude-logs:/tmp/claude-logs',
+                '-v', `${resolveHostTempPath('/tmp/claude-logs', cfg.hostTempRoot)}:/tmp/claude-logs`,
                 '--ulimit', 'nofile=65536:65536',
                 // The worker validates the attachment base URL at startup
                 // (validateAttachmentBaseUrlConfig); inject the computed value so a
@@ -1040,7 +1058,7 @@ export function buildServiceSpec(cfg, service) {
             ]);
         case 'indexing-worker':
             return appSpec(cfg, ['dist/src/indexing_worker.js'], [
-                '-v', '/tmp/claude-logs:/tmp/claude-logs',
+                '-v', `${resolveHostTempPath('/tmp/claude-logs', cfg.hostTempRoot)}:/tmp/claude-logs`,
                 '-e', `INDEXING_SCAN_INTERVAL_MS=${cfg.indexingScanInterval}`,
                 '-e', `INDEXING_REINDEX_INTERVAL_MS=${cfg.indexingReindexInterval}`,
                 ...managedCredentialArgs(cfg),
@@ -1061,7 +1079,7 @@ export function buildServiceSpec(cfg, service) {
                 '--network-alias', 'api',
                 '-p', `${cfg.apiPort}:4000`,
                 '-v', `${cfg.envFileHost}:/usr/src/app/.env:ro`,
-                '-v', '/tmp/pr-worktrees:/tmp/pr-worktrees',
+                '-v', `${resolveHostTempPath('/tmp/pr-worktrees', cfg.hostTempRoot)}:/tmp/pr-worktrees`,
                 '--ulimit', 'nofile=65536:65536',
                 ...vibePromptCacheArgs(cfg),
                 ...managedCredentialArgs(cfg),
@@ -2051,6 +2069,14 @@ export function validateEnv(cfg) {
     }
     if (!dockerNamePattern.test(cfg.network)) {
         errors.push(`PROPR_NETWORK ("${cfg.network}") is not a valid Docker network name — use letters, digits, '_', '.' or '-', starting with a letter or digit.`);
+    }
+
+    if (cfg.hostTempRoot) {
+        const invalidTempRoot = validateDockerBindPath('PROPR_HOST_TEMP_ROOT', cfg.hostTempRoot);
+        if (invalidTempRoot) errors.push(invalidTempRoot);
+        else if (resolve(cfg.hostTempRoot) === '/' || resolve(cfg.hostTempRoot) === '/tmp') {
+            errors.push('PROPR_HOST_TEMP_ROOT must be a dedicated directory, not / or /tmp.');
+        }
     }
 
     // `uniquelocal` is intentionally broad: proxy-addr expands it to every
