@@ -26,34 +26,34 @@ export function getDeploymentDispatchClient(
         privateKeyPath: env.GH_PRIVATE_KEY_PATH,
         installationId: env.GH_INSTALLATION_ID,
     }).mode;
-    const token = env.PROPR_DEPLOYMENT_GITHUB_TOKEN?.trim();
-    if (token) return createTokenClient(token);
     if (mode === 'app') return installationClient;
+    const token = env.PROPR_DEPLOYMENT_GITHUB_TOKEN?.trim();
+    if (mode === 'relay' && token) return createTokenClient(token);
     throw new MissingDeploymentDispatchCredentialError();
 }
 
-export function makeDeploymentApi(octokit: GithubClient, dispatchOctokit: GithubClient = octokit): DeploymentApi {
+export function makeDeploymentApi(octokit: GithubClient, actionsOctokit: GithubClient = octokit): DeploymentApi {
     return {
         getBranchHead: async (owner, repo, branch) => {
             const { data } = await octokit.request('GET /repos/{owner}/{repo}/branches/{branch}', { owner, repo, branch });
             return data.commit.sha;
         },
         getWorkflowId: async (owner, repo, workflow) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}', { owner, repo, workflow_id: workflow });
+            const { data } = await actionsOctokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}', { owner, repo, workflow_id: workflow });
             return data.id;
         },
         listRuns: async (owner, repo, workflowId, branch) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
+            const { data } = await actionsOctokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
                 owner, repo, workflow_id: workflowId, branch, event: 'workflow_dispatch', per_page: 100,
             });
             return data.workflow_runs as WorkflowRun[];
         },
         getRun: async (owner, repo, runId) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}', { owner, repo, run_id: runId });
+            const { data } = await actionsOctokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}', { owner, repo, run_id: runId });
             return data as WorkflowRun;
         },
         dispatch: async ({ owner, repo, workflow, branch, inputs, returnRunDetails }) => {
-            const response = await dispatchOctokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+            const response = await actionsOctokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
                 owner, repo, workflow_id: workflow, ref: branch, inputs, return_run_details: returnRunDetails,
             });
             const data = response.data as { workflow_run_id?: number; html_url?: string; run_url?: string } | undefined;

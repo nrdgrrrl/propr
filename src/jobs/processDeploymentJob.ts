@@ -34,9 +34,9 @@ export async function processDeploymentJob(job: Job<DeploymentJobData>): Promise
         return { status: 'configuration_missing', taskId: `deploy-${commentId}` };
     }
     const octokit = await getAuthenticatedOctokit();
-    let dispatchOctokit: GithubClient;
+    let actionsOctokit: GithubClient;
     try {
-        dispatchOctokit = getDeploymentDispatchClient(octokit);
+        actionsOctokit = getDeploymentDispatchClient(octokit);
     } catch (error) {
         if (!(error instanceof MissingDeploymentDispatchCredentialError)) throw error;
         await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
@@ -45,7 +45,7 @@ export async function processDeploymentJob(job: Job<DeploymentJobData>): Promise
         });
         return { status: 'failure', taskId: `deploy-${commentId}` };
     }
-    const api = makeDeploymentApi(octokit, dispatchOctokit);
+    const api = makeDeploymentApi(octokit, actionsOctokit);
     const result = await runDeploymentOperation({ owner: repoOwner, repo: repoName, pullRequestNumber, mode, config: config as RepositoryDeploymentConfig }, api);
     return { status: result.status, taskId: `deploy-${commentId}`, output: result.runUrl };
     } finally {

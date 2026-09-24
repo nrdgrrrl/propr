@@ -172,6 +172,18 @@ test('migration owner argv contains only its data bind and forced migration runt
   }
 });
 
+test('migration owner never receives the worker-only deployment secret env file', async () => {
+  const fake = installFakeDocker();
+  try {
+    await runMigrationPhaseAsync(config({ deploymentSecretsFileLocal: '/stack/deployment-secrets.env' }));
+    const run = fake.lines().find(line => line.startsWith('run --rm --init --name propr-migrate '));
+    assert.ok(run);
+    assert.doesNotMatch(run, /deployment-secrets\.env/);
+  } finally {
+    fake.restore();
+  }
+});
+
 test('migration failure aborts startup before any service container is created', () => {
   const fake = installFakeDocker();
   try {

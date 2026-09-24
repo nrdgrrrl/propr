@@ -6,6 +6,7 @@ import { filterCommentByAuthor, checkCommentTrigger } from '@propr/core';
 import { extractLlmFromLabels, resolveModelAlias } from '@propr/core';
 import { hasValidTriggerLabel } from '@propr/core';
 import type { Redis } from 'ioredis';
+import { pullRequestPollingOptions } from './pullRequestPollingOptions.js';
 
 type Octokit = {
     paginate: <T>(endpoint: string, options: Record<string, unknown>) => Promise<T[]>;
@@ -89,12 +90,10 @@ export async function pollForPullRequestComments(
     }, 'Checking for PR comments in repository');
 
     try {
-        const prs = await octokit.paginate<PullRequest>('GET /repos/{owner}/{repo}/pulls', {
-            owner,
-            repo,
-            state: 'open',
-            per_page: 100
-        });
+        const prs = await octokit.paginate<PullRequest>(
+            'GET /repos/{owner}/{repo}/pulls',
+            pullRequestPollingOptions(owner, repo),
+        );
 
         correlatedLogger.debug({
             repository: repoFullName,

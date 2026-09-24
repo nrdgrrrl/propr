@@ -169,6 +169,7 @@ describe('backend deployment dispatch credential', () => {
     test('own-App mode can use its normal installation client when Actions: write is configured on the App', () => {
         const regular = { request: async () => ({ data: {} }) } as never;
         assert.equal(getDeploymentDispatchClient(regular, { GH_AUTH_MODE: 'app' }), regular);
+        assert.equal(getDeploymentDispatchClient(regular, { GH_AUTH_MODE: 'app', PROPR_DEPLOYMENT_GITHUB_TOKEN: 'relay-only-token' }), regular);
     });
 
     test('relay mode fails closed when no dedicated dispatch credential is configured', () => {
@@ -176,38 +177,47 @@ describe('backend deployment dispatch credential', () => {
         assert.throws(() => getDeploymentDispatchClient(regular, { GH_AUTH_MODE: 'relay' }), MissingDeploymentDispatchCredentialError);
     });
 
-    test('dedicated token is used only by the dispatch adapter; reads and comments stay on the installation client', async () => {
+    test('dedicated token is confined to Actions API calls; branch reads and comments stay on the installation client', async () => {
         const token = 'backend-only-deploy-token';
         const tokenClientCalls: Array<{ route: string; parameters?: Record<string, unknown> }> = [];
         const normalClientCalls: string[] = [];
         const normal = { request: async (route: string) => {
             normalClientCalls.push(route);
-            if (route.startsWith('GET /repos/{owner}/{repo}/actions/workflows/')) return { data: { id: 3 } };
-            if (route.startsWith('GET /repos/{owner}/{repo}/actions/runs/')) return { data: run(8) };
             return { data: { commit: { sha: 'production-sha-1234567890' } } };
         } } as never;
         const dispatch = getDeploymentDispatchClient(normal, { GH_AUTH_MODE: 'relay', PROPR_DEPLOYMENT_GITHUB_TOKEN: token }, received => {
             assert.equal(received, token);
-            return { request: async (route: string, parameters?: Record<string, unknown>) => { tokenClientCalls.push({ route, parameters }); return { data: { workflow_run_id: 8, html_url: 'https://github.com/nrdgrrrl/WordRush/actions/runs/8', run_url: 'https://api.github.com/repos/nrdgrrrl/WordRush/actions/runs/8' } }; } } as never;
+            return { request: async (route: string, parameters?: Record<string, unknown>) => {
+                tokenClientCalls.push({ route, parameters });
+                if (route.endsWith('/workflows/{workflow_id}')) return { data: { id: 3 } };
+                if (route.endsWith('/workflows/{workflow_id}/runs')) return { data: { workflow_runs: [run(8)] } };
+                if (route.endsWith('/runs/{run_id}')) return { data: run(8) };
+                return { data: { workflow_run_id: 8, html_url: 'https://github.com/nrdgrrrl/WordRush/actions/runs/8', run_url: 'https://api.github.com/repos/nrdgrrrl/WordRush/actions/runs/8' } };
+            } } as never;
         });
         const adapter = makeDeploymentApi(normal, dispatch);
         await adapter.getBranchHead('nrdgrrrl', 'WordRush', 'master');
         await adapter.getWorkflowId('nrdgrrrl', 'WordRush', 'deploy-production.yml');
+        await adapter.listRuns('nrdgrrrl', 'WordRush', 3, 'master');
         await adapter.getRun('nrdgrrrl', 'WordRush', 8);
         await adapter.comment('nrdgrrrl', 'WordRush', 9, 'status');
         await adapter.dispatch({ owner: 'nrdgrrrl', repo: 'WordRush', workflow: 'deploy-production.yml', branch: 'master', inputs: { commit: 'sha', mode: 'deploy' }, returnRunDetails: true });
         assert.deepEqual(normalClientCalls, [
             'GET /repos/{owner}/{repo}/branches/{branch}',
-            'GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}',
-            'GET /repos/{owner}/{repo}/actions/runs/{run_id}',
             'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
         ]);
-        assert.deepEqual(tokenClientCalls, [{
+        assert.deepEqual(tokenClientCalls.map(call => call.route), [
+            'GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}',
+            'GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs',
+            'GET /repos/{owner}/{repo}/actions/runs/{run_id}',
+            'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches',
+        ]);
+        assert.deepEqual(tokenClientCalls[3], {
             route: 'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches',
             parameters: {
                 owner: 'nrdgrrrl', repo: 'WordRush', workflow_id: 'deploy-production.yml', ref: 'master',
                 inputs: { commit: 'sha', mode: 'deploy' }, return_run_details: true,
             },
-        }]);
+        });
     });
 });
