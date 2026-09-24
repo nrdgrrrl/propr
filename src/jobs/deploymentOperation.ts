@@ -16,7 +16,8 @@ export interface DeploymentApi {
     getBranchHead(owner: string, repo: string, branch: string): Promise<string>;
     getWorkflowId(owner: string, repo: string, workflow: string): Promise<number>;
     listRuns(owner: string, repo: string, workflowId: number, branch: string): Promise<WorkflowRun[]>;
-    dispatch(request: { owner: string; repo: string; workflow: string; branch: string; inputs: Record<string, string> }): Promise<{ runId?: number; runUrl?: string } | void>;
+    getRun(owner: string, repo: string, runId: number): Promise<WorkflowRun>;
+    dispatch(request: { owner: string; repo: string; workflow: string; branch: string; inputs: Record<string, string>; returnRunDetails: true }): Promise<{ runId?: number; runUrl?: string } | void>;
     comment(owner: string, repo: string, pr: number, body: string): Promise<void>;
     sleep(ms: number): Promise<void>;
 }
@@ -76,16 +77,29 @@ async function discoverWorkflowRun(args: {
     const { owner, repo, config } = request;
     if (dispatchResponse?.runId) {
         for (let attempt = 0; attempt < DISCOVERY_ATTEMPTS; attempt++) {
-            const direct = (await readWithRetry(() => api.listRuns(owner, repo, workflowId, config.productionBranch), api)).find(candidate =>
-                candidate.id === dispatchResponse.runId
-                && candidate.workflow_id === workflowId
-                && candidate.event === 'workflow_dispatch'
-                && candidate.head_branch === config.productionBranch
-                && candidate.head_sha === sha
-            );
-            if (direct) return direct;
-            if (attempt + 1 < DISCOVERY_ATTEMPTS) await api.sleep(DISCOVERY_INTERVAL_MS);
+            let direct: WorkflowRun;
+            try {
+                direct = await readWithRetry(() => api.getRun(owner, repo, dispatchResponse.runId!), api);
+            } catch (error) {
+                const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status: unknown }).status) : 0;
+                if (status !== 404 || attempt + 1 >= DISCOVERY_ATTEMPTS) throw error;
+                await api.sleep(DISCOVERY_INTERVAL_MS);
+                continue;
+            }
+            if (direct.id !== dispatchResponse.runId) return undefined;
+            if (direct.workflow_id === workflowId
+                && direct.event === 'workflow_dispatch'
+                && direct.head_branch === config.productionBranch) {
+                return {
+                    ...direct,
+                    html_url: dispatchResponse.runUrl ?? direct.html_url,
+                };
+            }
+            return undefined;
         }
+        // A run ID returned by GitHub is authoritative. Never correlate this
+        // dispatch to another run if its exact run cannot be read.
+        return undefined;
     }
     for (let attempt = 0; attempt < DISCOVERY_ATTEMPTS; attempt++) {
         const runs = await readWithRetry(() => api.listRuns(owner, repo, workflowId, config.productionBranch), api);
@@ -100,25 +114,25 @@ async function discoverWorkflowRun(args: {
 async function monitorWorkflowRun(args: {
     request: DeploymentRequest;
     api: DeploymentApi;
-    workflowId: number;
     sha: string;
     run: WorkflowRun;
 }): Promise<{ status: 'success' | 'failure'; runUrl: string }> {
-    const { request, api, workflowId, sha, run } = args;
+    const { request, api, sha, run } = args;
     const { owner, repo, pullRequestNumber, mode, config } = request;
     const action = mode === 'deploy' ? 'Production deployment' : 'Production deployment dry-run';
-    await api.comment(owner, repo, pullRequestNumber, `🚀 **${action} started**\n\n- SHA: [\`${sha.slice(0, 12)}\`](https://github.com/${owner}/${repo}/commit/${sha})\n- Workflow: \`${config.workflow}\`\n- Run: [View GitHub Actions run](${run.html_url})`);
+    await api.comment(owner, repo, pullRequestNumber, `🚀 **${action} started**\n\n- SHA: [\`${sha}\`](https://github.com/${owner}/${repo}/commit/${sha})\n- Workflow: \`${config.workflow}\`\n- Run: [View GitHub Actions run](${run.html_url})`);
 
     for (let attempt = 0; attempt < MONITOR_ATTEMPTS; attempt++) {
-        const latest = (await readWithRetry(() => api.listRuns(owner, repo, workflowId, config.productionBranch), api)).find(candidate => candidate.id === run.id);
-        if (latest?.status === 'completed') {
+        const latest = await readWithRetry(() => api.getRun(owner, repo, run.id), api);
+        if (latest.id !== run.id) throw new Error('GitHub returned a different workflow run than the requested run ID.');
+        if (latest.status === 'completed') {
             const success = latest.conclusion === 'success';
-            await api.comment(owner, repo, pullRequestNumber, `${success ? '✅' : '❌'} **${action} ${success ? 'succeeded' : 'failed'}**\n\n- SHA: [\`${sha.slice(0, 12)}\`](https://github.com/${owner}/${repo}/commit/${sha})\n- Workflow: \`${config.workflow}\`\n- Result: \`${latest.conclusion ?? 'unknown'}\`\n- Run: [View GitHub Actions run](${latest.html_url})`);
-            return { status: success ? 'success' : 'failure', runUrl: latest.html_url };
+            await api.comment(owner, repo, pullRequestNumber, `${success ? '✅' : '❌'} **${action} ${success ? 'succeeded' : 'failed'}**\n\n- SHA: [\`${sha}\`](https://github.com/${owner}/${repo}/commit/${sha})\n- Workflow: \`${config.workflow}\`\n- Result: \`${latest.conclusion ?? 'unknown'}\`\n- Run: [View GitHub Actions run](${run.html_url})`);
+            return { status: success ? 'success' : 'failure', runUrl: run.html_url };
         }
         if (attempt + 1 < MONITOR_ATTEMPTS) await api.sleep(MONITOR_INTERVAL_MS);
     }
-    await api.comment(owner, repo, pullRequestNumber, `⏱️ **${action} is still running** for SHA \`${sha.slice(0, 12)}\`. Monitoring timed out; check [the GitHub Actions run](${run.html_url}) for its current status.`);
+    await api.comment(owner, repo, pullRequestNumber, `⏱️ **${action} is still running** for SHA \`${sha}\`. Monitoring timed out; check [the GitHub Actions run](${run.html_url}) for its current status.`);
     return { status: 'failure', runUrl: run.html_url };
 }
 
@@ -152,6 +166,7 @@ export async function runDeploymentOperation(
             repo,
             workflow: config.workflow,
             branch: config.productionBranch,
+            returnRunDetails: true,
             inputs: {
                 [config.commitInput]: sha,
                 [config.modeInput]: mode === 'deploy' ? config.deployValue : config.dryRunValue,
@@ -164,7 +179,7 @@ export async function runDeploymentOperation(
         }
 
         runUrl = run.html_url;
-        const result = await monitorWorkflowRun({ request, api, workflowId, sha, run });
+        const result = await monitorWorkflowRun({ request, api, sha, run });
         return { ...result, sha };
     } catch (error) {
         // Do not include arbitrary GitHub error bodies: they may contain sensitive

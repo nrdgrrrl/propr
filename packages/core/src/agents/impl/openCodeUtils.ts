@@ -212,6 +212,7 @@ function buildEnvVars(config: AgentConfig): string[] {
  * containing newlines/NUL.
  */
 export function shouldForwardEnvVar(key: string, value: string): boolean {
+    if (key === 'PROPR_DEPLOYMENT_GITHUB_TOKEN') return false;
     if (!ENV_NAME_PATTERN.test(key)) {
         logger.warn({ envVar: key }, 'Skipping OpenCode env var with invalid name');
         return false;

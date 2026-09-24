@@ -130,6 +130,10 @@ export function getForwardedVibeEnvVars(envVars: Record<string, string> | undefi
     const dockerArgs: string[] = [];
     const skipped: string[] = [];
     for (const [key, value] of Object.entries(envVars || {})) {
+        if (key === 'PROPR_DEPLOYMENT_GITHUB_TOKEN') {
+            skipped.push(key);
+            continue;
+        }
         if (key === 'MISTRAL_API_KEY' || key === 'VIBE_CLI_ARGS') {
             continue;
         }

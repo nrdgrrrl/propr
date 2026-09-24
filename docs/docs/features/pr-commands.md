@@ -287,7 +287,18 @@ To configure a repository, include a `deployment` object on its entry in the adm
 }
 ```
 
-For this feature, the GitHub App installation needs **Actions: write** on each configured repository. In GitHub, open the App's **Permissions & events → Repository permissions**, set **Actions** to **Read and write**, save the change, then approve the permission update for the installation and confirm it has access to the configured repository. Keep the workflow's Tailscale, SSH, and production credentials in GitHub Actions secrets and use the workflow's existing safety checks as the production trust boundary. ProPR reports permission failures without switching to a personal access token or sending credentials to an agent.
+The credential used for workflow dispatch depends on the backend's GitHub auth mode:
+
+- **Own-App (`GH_AUTH_MODE=app`)**: if your GitHub App has **Actions: write** on the configured repository, ProPR uses its normal installation token. In GitHub, set the App's **Permissions & events → Repository permissions → Actions** permission to **Read and write**, save the change, then approve the permission update for the installation.
+- **Relay/shared-App (`GH_AUTH_MODE=relay`)**: the shared App registration is managed by ProPR, so a relay installation token may not have Actions write. Configure `PROPR_DEPLOYMENT_GITHUB_TOKEN` as a backend-only secret for the worker. Use a fine-grained personal access token restricted to only the configured repository and grant only **Actions: write** (GitHub's [minimum repository permission for workflow dispatch](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)). ProPR uses this credential only for the configured workflow dispatch; the normal installation token continues to perform GitHub reads, run monitoring, and PR comments. Relay mode fails closed when this credential is absent; ProPR does not fall back to a user token or another broad credential.
+
+For the standard `docker-compose.yml` stack (Compose 2.24 or later for its optional env-file syntax), put only this line in the ignored `deployment-secrets.env` file next to the compose file (create the file with mode `0600`); Compose mounts it into the worker service only:
+
+```dotenv
+PROPR_DEPLOYMENT_GITHUB_TOKEN=github_pat_…
+```
+
+For `docker-compose.prod.yml`, provide `PROPR_DEPLOYMENT_GITHUB_TOKEN` through your deployment secret manager or Compose interpolation environment; that file passes it to the worker service only. Do not add it to repository JSON or the normal config API. The backend never passes this token to an LLM, agent job, subprocess, worktree environment, or agent container. Keep Tailscale, SSH, and production credentials in GitHub Actions secrets; GitHub Actions and the configured workflow remain the production trust boundary.
 
 ## Completion Comments
 

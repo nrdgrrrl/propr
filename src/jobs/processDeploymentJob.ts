@@ -1,40 +1,10 @@
 import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { getAuthenticatedOctokit, getIssueQueue, loadMonitoredReposRaw, type DeploymentJobData, type JobResult, type RepositoryDeploymentConfig } from '@propr/core';
-import { runDeploymentOperation, type DeploymentApi, type WorkflowRun } from './deploymentOperation.js';
+import { getDeploymentDispatchClient, makeDeploymentApi, MissingDeploymentDispatchCredentialError } from './deploymentGithubApi.js';
+import { runDeploymentOperation } from './deploymentOperation.js';
 
-function makeDeploymentApi(octokit: Awaited<ReturnType<typeof getAuthenticatedOctokit>>): DeploymentApi {
-    return {
-        getBranchHead: async (owner, repo, branch) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/branches/{branch}', { owner, repo, branch });
-            return data.commit.sha;
-        },
-        getWorkflowId: async (owner, repo, workflow) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}', { owner, repo, workflow_id: workflow });
-            return data.id;
-        },
-        listRuns: async (owner, repo, workflowId, branch) => {
-            const { data } = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs', {
-                owner, repo, workflow_id: workflowId, branch, event: 'workflow_dispatch', per_page: 100,
-            });
-            return data.workflow_runs as WorkflowRun[];
-        },
-        dispatch: async ({ owner, repo, workflow, branch, inputs }) => {
-            const response = await octokit.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-                owner, repo, workflow_id: workflow, ref: branch, inputs,
-            });
-            const data = response.data as { workflow_run_id?: number; html_url?: string; run_url?: string } | undefined;
-            return {
-                ...(typeof data?.workflow_run_id === 'number' ? { runId: data.workflow_run_id } : {}),
-                ...(typeof data?.html_url === 'string' ? { runUrl: data.html_url } : typeof data?.run_url === 'string' ? { runUrl: data.run_url } : {}),
-            };
-        },
-        comment: async (owner, repo, pr, body) => {
-            await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', { owner, repo, issue_number: pr, body });
-        },
-        sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
-    };
-}
+type GithubClient = Pick<Awaited<ReturnType<typeof getAuthenticatedOctokit>>, 'request'>;
 
 export async function processDeploymentJob(job: Job<DeploymentJobData>): Promise<JobResult> {
     const { repoOwner, repoName, pullRequestNumber, commentId, mode } = job.data;
@@ -64,7 +34,18 @@ export async function processDeploymentJob(job: Job<DeploymentJobData>): Promise
         return { status: 'configuration_missing', taskId: `deploy-${commentId}` };
     }
     const octokit = await getAuthenticatedOctokit();
-    const api = makeDeploymentApi(octokit);
+    let dispatchOctokit: GithubClient;
+    try {
+        dispatchOctokit = getDeploymentDispatchClient(octokit);
+    } catch (error) {
+        if (!(error instanceof MissingDeploymentDispatchCredentialError)) throw error;
+        await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            owner: repoOwner, repo: repoName, issue_number: pullRequestNumber,
+            body: '❌ ProPR could not dispatch the configured deployment: this relay-mode backend has no `PROPR_DEPLOYMENT_GITHUB_TOKEN` configured. No workflow was dispatched.',
+        });
+        return { status: 'failure', taskId: `deploy-${commentId}` };
+    }
+    const api = makeDeploymentApi(octokit, dispatchOctokit);
     const result = await runDeploymentOperation({ owner: repoOwner, repo: repoName, pullRequestNumber, mode, config: config as RepositoryDeploymentConfig }, api);
     return { status: result.status, taskId: `deploy-${commentId}`, output: result.runUrl };
     } finally {

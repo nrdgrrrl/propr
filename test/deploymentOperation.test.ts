@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { RepositoryDeploymentConfig } from '@propr/core';
 import { runDeploymentOperation, type DeploymentApi, type WorkflowRun } from '../src/jobs/deploymentOperation.js';
 import { isDeploymentCommentAuthorized } from '../packages/core/src/webhook/deploymentAuthorization.js';
+import { getDeploymentDispatchClient, makeDeploymentApi, MissingDeploymentDispatchCredentialError } from '../src/jobs/deploymentGithubApi.js';
 
 test('deployment authorization requires an explicitly whitelisted human', () => {
     assert.equal(isDeploymentCommentAuthorized('Alice', 'User', ['alice']), true);
@@ -49,6 +50,7 @@ function api(overrides: Partial<DeploymentApi> = {}) {
             if (runLists === 1) return [run(1, { head_sha: 'production-sha-1234567890' })];
             return [run(1), run(2)];
         },
+        getRun: async (_owner, _repo, id) => { calls.push({ method: 'getRun', args: [id] }); return run(id); },
         dispatch: async (request) => { calls.push({ method: 'dispatch', args: [request] }); },
         comment: async (_owner, _repo, _pr, body) => { comments.push(body); },
         sleep: async () => {},
@@ -62,7 +64,7 @@ describe('runDeploymentOperation', () => {
         const fixture = api();
         const result = await runDeploymentOperation({ owner: 'nrdgrrrl', repo: 'WordRush', pullRequestNumber: 11, mode: 'deploy', config }, fixture.adapter);
         const dispatch = fixture.calls.find(call => call.method === 'dispatch')!;
-        assert.deepEqual(dispatch.args, [{ owner: 'nrdgrrrl', repo: 'WordRush', workflow: 'deploy-production.yml', branch: 'master', inputs: { commit: 'production-sha-1234567890', mode: 'deploy' } }]);
+        assert.deepEqual(dispatch.args, [{ owner: 'nrdgrrrl', repo: 'WordRush', workflow: 'deploy-production.yml', branch: 'master', returnRunDetails: true, inputs: { commit: 'production-sha-1234567890', mode: 'deploy' } }]);
         assert.deepEqual(result, { status: 'success', sha: 'production-sha-1234567890', runUrl: 'https://github.com/nrdgrrrl/WordRush/actions/runs/2' });
         assert.equal(fixture.comments.length, 2);
         assert.match(fixture.comments[0], /production-sha-1234567890/);
@@ -76,6 +78,7 @@ describe('runDeploymentOperation', () => {
                 let count = 0;
                 return async () => ++count === 1 ? [] : [run(22, { status: 'completed', conclusion: 'failure' })];
             })(),
+            getRun: async (_owner, _repo, id) => run(id, { status: 'completed', conclusion: 'failure' }),
         });
         const result = await runDeploymentOperation({ owner: 'nrdgrrrl', repo: 'WordRush', pullRequestNumber: 12, mode: 'dry-run', config }, fixture.adapter);
         const dispatch = fixture.calls.find(call => call.method === 'dispatch')!;
@@ -84,6 +87,28 @@ describe('runDeploymentOperation', () => {
         assert.match(fixture.comments[0], /dry-run started/);
         assert.match(fixture.comments[1], /failed/);
         assert.match(fixture.comments[1], /actions\/runs\/22/);
+    });
+
+    test('uses the exact run ID and URL returned by workflow_dispatch despite a competing same-SHA run', async () => {
+        const fixture = api({
+            dispatch: async request => {
+                fixture.calls.push({ method: 'dispatch', args: [request] });
+                return { runId: 44, runUrl: 'https://github.com/nrdgrrrl/WordRush/actions/runs/44' };
+            },
+            getRun: async (_owner, _repo, id) => {
+                fixture.calls.push({ method: 'getRun', args: [id] });
+                return run(id, { head_sha: 'branch-advanced-after-resolution' });
+            },
+            listRuns: async (...args) => {
+                fixture.calls.push({ method: 'runs', args });
+                return [run(43)];
+            },
+        });
+        const result = await runDeploymentOperation({ owner: 'nrdgrrrl', repo: 'WordRush', pullRequestNumber: 18, mode: 'deploy', config }, fixture.adapter);
+        assert.equal(result.runUrl, 'https://github.com/nrdgrrrl/WordRush/actions/runs/44');
+        assert.ok(fixture.comments.every(comment => comment.includes('production-sha-1234567890')));
+        assert.deepEqual(fixture.calls.filter(call => call.method === 'getRun').map(call => call.args), [[44], [44]]);
+        assert.equal(fixture.calls.filter(call => call.method === 'runs').length, 1, 'only the pre-dispatch snapshot is listed');
     });
 
     test('selects only a new matching workflow run, excluding older and unrelated concurrent runs', async () => {
@@ -115,18 +140,18 @@ describe('runDeploymentOperation', () => {
         assert.doesNotMatch(fixture.comments[0], /secret-bearing/);
     });
 
-    test('recovers from a transient run-list API error while monitoring', async () => {
+    test('recovers from a transient exact-run API error while monitoring', async () => {
         let attempts = 0;
         const fixture = api({
-            listRuns: async () => {
+            getRun: async () => {
                 attempts++;
-                if (attempts === 2) throw Object.assign(new Error('temporary'), { status: 503 });
-                return attempts === 1 ? [] : [run(77)];
+                if (attempts === 1) throw Object.assign(new Error('temporary'), { status: 503 });
+                return run(2);
             },
         });
         const result = await runDeploymentOperation({ owner: 'nrdgrrrl', repo: 'WordRush', pullRequestNumber: 17, mode: 'deploy', config }, fixture.adapter);
         assert.equal(result.status, 'success');
-        assert.equal(attempts >= 4, true);
+        assert.equal(attempts >= 2, true);
     });
 
     test('does not attach to any pre-existing run when no new run appears', async () => {
@@ -137,5 +162,52 @@ describe('runDeploymentOperation', () => {
         assert.equal(result.status, 'failure');
         assert.equal(result.runUrl, undefined);
         assert.match(fixture.comments[0], /could not identify the new workflow run/);
+    });
+});
+
+describe('backend deployment dispatch credential', () => {
+    test('own-App mode can use its normal installation client when Actions: write is configured on the App', () => {
+        const regular = { request: async () => ({ data: {} }) } as never;
+        assert.equal(getDeploymentDispatchClient(regular, { GH_AUTH_MODE: 'app' }), regular);
+    });
+
+    test('relay mode fails closed when no dedicated dispatch credential is configured', () => {
+        const regular = { request: async () => ({ data: {} }) } as never;
+        assert.throws(() => getDeploymentDispatchClient(regular, { GH_AUTH_MODE: 'relay' }), MissingDeploymentDispatchCredentialError);
+    });
+
+    test('dedicated token is used only by the dispatch adapter; reads and comments stay on the installation client', async () => {
+        const token = 'backend-only-deploy-token';
+        const tokenClientCalls: Array<{ route: string; parameters?: Record<string, unknown> }> = [];
+        const normalClientCalls: string[] = [];
+        const normal = { request: async (route: string) => {
+            normalClientCalls.push(route);
+            if (route.startsWith('GET /repos/{owner}/{repo}/actions/workflows/')) return { data: { id: 3 } };
+            if (route.startsWith('GET /repos/{owner}/{repo}/actions/runs/')) return { data: run(8) };
+            return { data: { commit: { sha: 'production-sha-1234567890' } } };
+        } } as never;
+        const dispatch = getDeploymentDispatchClient(normal, { GH_AUTH_MODE: 'relay', PROPR_DEPLOYMENT_GITHUB_TOKEN: token }, received => {
+            assert.equal(received, token);
+            return { request: async (route: string, parameters?: Record<string, unknown>) => { tokenClientCalls.push({ route, parameters }); return { data: { workflow_run_id: 8, html_url: 'https://github.com/nrdgrrrl/WordRush/actions/runs/8', run_url: 'https://api.github.com/repos/nrdgrrrl/WordRush/actions/runs/8' } }; } } as never;
+        });
+        const adapter = makeDeploymentApi(normal, dispatch);
+        await adapter.getBranchHead('nrdgrrrl', 'WordRush', 'master');
+        await adapter.getWorkflowId('nrdgrrrl', 'WordRush', 'deploy-production.yml');
+        await adapter.getRun('nrdgrrrl', 'WordRush', 8);
+        await adapter.comment('nrdgrrrl', 'WordRush', 9, 'status');
+        await adapter.dispatch({ owner: 'nrdgrrrl', repo: 'WordRush', workflow: 'deploy-production.yml', branch: 'master', inputs: { commit: 'sha', mode: 'deploy' }, returnRunDetails: true });
+        assert.deepEqual(normalClientCalls, [
+            'GET /repos/{owner}/{repo}/branches/{branch}',
+            'GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}',
+            'GET /repos/{owner}/{repo}/actions/runs/{run_id}',
+            'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
+        ]);
+        assert.deepEqual(tokenClientCalls, [{
+            route: 'POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches',
+            parameters: {
+                owner: 'nrdgrrrl', repo: 'WordRush', workflow_id: 'deploy-production.yml', ref: 'master',
+                inputs: { commit: 'sha', mode: 'deploy' }, return_run_details: true,
+            },
+        }]);
     });
 });

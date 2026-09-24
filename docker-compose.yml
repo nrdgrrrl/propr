@@ -103,6 +103,10 @@ services:
       - ${PROPR_HOST_TEMP_ROOT:-/tmp}/propr-vibe-prompts:/tmp/propr-vibe-prompts
     env_file:
       - .env
+      # Optional dispatch-only secret file. Keep the deployment credential
+      # out of the shared .env, which is read by multiple services.
+      - path: ./deployment-secrets.env
+        required: false
     environment:
       - CLAUDE_CONFIG_PATH=${HOME:?HOME must be set}/.claude
       - CODEX_CONFIG_PATH=${HOME:?HOME must be set}/.codex
