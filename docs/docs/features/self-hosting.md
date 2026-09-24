@@ -21,7 +21,7 @@ You supply the GitHub App credentials and agent credentials. ProPR does not requ
 
 The recommended setup is the published image set, orchestrated either by the ProPR CLI control plane or by one `docker run` of the launcher container. Both pull a pinned image set and start the service containers — Redis, daemon, worker, analysis and indexing workers, API, and Web UI — as siblings on the host Docker daemon, with your `.env`, data, logs, and repos directories mounted in. The image list and orchestration details live in [Production Deployment](../operations/deployment.md#published-images).
 
-Local directory layout next to your `.env`: the GitHub App `<key>.pem` (own-App mode only), plus `data/` (SQLite database), `logs/`, and `repos/` (clones and worktrees). This works for both local workstation setup and remote server deployment. See [Setup](../tutorials/setup.md) for the full flow, including the required GitHub App permissions (Contents R/W, Issues R/W, Pull Requests R/W, Metadata R, Actions R optional).
+Local directory layout next to your `.env`: the GitHub App `<key>.pem` (own-App mode only), plus `data/` (SQLite database), `logs/`, and `repos/` (clones and worktrees). This works for both local workstation setup and remote server deployment. See [Setup](../tutorials/setup.md) for the full flow, including the required GitHub App permissions (Contents R/W, Issues R/W, Pull Requests R/W, Metadata R). For `/deploy`, own-App mode can use the installation token when the App has Actions: write. Relay/shared-App mode uses the separate worker-only `PROPR_DEPLOYMENT_GITHUB_TOKEN`; see [PR commands](./pr-commands.md#deploy) for the minimum token permission and setup. Actions read is used for CI check results.
 
 ## Local Or Server
 

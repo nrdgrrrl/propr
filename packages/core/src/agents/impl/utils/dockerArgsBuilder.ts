@@ -19,7 +19,7 @@ import {
     REPOSITORY_SCOUT_MCP_TOOLS,
 } from './repositoryScoutMcpServer.js';
 
-const GITHUB_CREDENTIAL_ENV_NAMES = new Set(['GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_ACCESS_TOKEN']);
+const GITHUB_CREDENTIAL_ENV_NAMES = new Set(['GH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_ACCESS_TOKEN', 'PROPR_DEPLOYMENT_GITHUB_TOKEN']);
 const GITHUB_CREDENTIAL_ENV_PATTERN = /^(?:GH|GITHUB)_.*(?:TOKEN|KEY|SECRET|PASSWORD|PAT|PRIVATE_KEY)$/;
 
 function isGitHubCredentialEnvironmentVariable(name: string): boolean {
@@ -36,6 +36,9 @@ function buildEnvironmentVariableArgs(
     for (const source of sources) {
         if (!source) continue;
         for (const [key, value] of Object.entries(source)) {
+            // This backend-only dispatch token must never be forwarded, even
+            // when a normal task is allowed to receive other environment vars.
+            if (key === 'PROPR_DEPLOYMENT_GITHUB_TOKEN') continue;
             if (omitGitHubCredentials && isGitHubCredentialEnvironmentVariable(key)) continue;
             args.push('-e', `${key}=${value}`);
         }

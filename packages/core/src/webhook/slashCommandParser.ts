@@ -5,7 +5,7 @@
  * Splits the comment into command name, arguments, and trailing multiline instructions.
  */
 
-export type SlashCommandName = 'review' | 'fix' | 'merge' | 'switch' | 'use' | 'ultrafix';
+export type SlashCommandName = 'review' | 'fix' | 'merge' | 'switch' | 'use' | 'ultrafix' | 'deploy';
 
 export interface ParsedSlashCommand {
     /** The recognized command */
@@ -72,9 +72,14 @@ export interface UltrafixCommandMeta {
     warning?: string;
 }
 
-export type CommandMeta = ReviewCommandMeta | FixCommandMeta | MergeCommandMeta | SwitchCommandMeta | UseCommandMeta | UltrafixCommandMeta;
+export interface DeployCommandMeta {
+    mode: 'deploy';
+    deploymentMode: 'deploy' | 'dry-run' | 'invalid';
+}
 
-const SLASH_COMMANDS = new Set<SlashCommandName>(['review', 'fix', 'merge', 'switch', 'use', 'ultrafix']);
+export type CommandMeta = ReviewCommandMeta | FixCommandMeta | MergeCommandMeta | SwitchCommandMeta | UseCommandMeta | UltrafixCommandMeta | DeployCommandMeta;
+
+const SLASH_COMMANDS = new Set<SlashCommandName>(['review', 'fix', 'merge', 'switch', 'use', 'ultrafix', 'deploy']);
 
 /**
  * Parse a PR comment body for a slash command.
@@ -168,6 +173,8 @@ export function buildCommandMeta(parsed: ParsedSlashCommand): CommandMeta {
         case 'ultrafix': {
             return parseUltrafixArgs(parsed);
         }
+        case 'deploy':
+            return { mode: 'deploy', deploymentMode: parsed.args.length === 0 ? 'deploy' : parsed.args.length === 1 && parsed.args[0] === 'dry-run' ? 'dry-run' : 'invalid' };
     }
 }
 

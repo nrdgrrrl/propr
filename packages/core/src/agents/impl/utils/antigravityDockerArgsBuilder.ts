@@ -37,6 +37,7 @@ function buildAgentEnvironmentArgs(
     for (const source of sources) {
         if (!source) continue;
         for (const [key, value] of Object.entries(source)) {
+            if (key === 'PROPR_DEPLOYMENT_GITHUB_TOKEN') continue;
             if (omitGithubCredentials && GITHUB_CREDENTIAL_ENV_PATTERN.test(key.toUpperCase())) continue;
             args.push('-e', `${key}=${value}`);
         }

@@ -1,5 +1,6 @@
 node_modules/
 .env
+deployment-secrets.env
 *.pem
 .DS_Store
 npm-debug.log*

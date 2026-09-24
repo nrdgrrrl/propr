@@ -15,6 +15,7 @@ export type {
     SystemTaskJobData,
     IndexingJobData,
     MergeConflictJobData,
+    DeploymentJobData,
     SystemAction,
     AutoResolveContext,
     JobData,
@@ -61,7 +62,7 @@ const connectionOptions: RedisOptions = {
 
 // Lazy-initialized Redis connection and queues
 let redisConnection: Redis | null = null;
-let _issueQueue: Queue<IssueJobData | CommentJobData | import('./taskQueue.types.js').GoalJobData> | null = null;
+let _issueQueue: Queue<JobData> | null = null;
 let _analysisQueue: Queue<AnalysisJobData> | null = null;
 let _indexingQueue: Queue<IndexingJobData> | null = null;
 let isInitialized = false;
@@ -108,7 +109,7 @@ async function ensureInitialized(): Promise<void> {
         },
     };
 
-    _issueQueue = new Queue<IssueJobData | CommentJobData | GoalJobData>(GITHUB_ISSUE_QUEUE_NAME, issueQueueOptions);
+    _issueQueue = new Queue<JobData>(GITHUB_ISSUE_QUEUE_NAME, issueQueueOptions);
     _issueQueue.on('error', (err: Error) => {
         logger.error({ queue: GITHUB_ISSUE_QUEUE_NAME, err }, 'Queue error');
     });
@@ -164,7 +165,7 @@ async function ensureInitialized(): Promise<void> {
 /**
  * Get the issue queue, initializing if needed.
  */
-export async function getIssueQueue(): Promise<Queue<IssueJobData | CommentJobData | import('./taskQueue.types.js').GoalJobData>> {
+export async function getIssueQueue(): Promise<Queue<JobData>> {
     await ensureInitialized();
     return _issueQueue!;
 }
@@ -188,7 +189,7 @@ export async function getIndexingQueue(): Promise<Queue<IndexingJobData>> {
 // Legacy synchronous exports for backward compatibility
 // These will throw if accessed before initialization
 // Use getIssueQueue(), getAnalysisQueue(), getIndexingQueue() for safe access
-export const issueQueue = new Proxy({} as Queue<IssueJobData | CommentJobData | import('./taskQueue.types.js').GoalJobData>, {
+export const issueQueue = new Proxy({} as Queue<JobData>, {
     get(_target, prop) {
         if (!_issueQueue) {
             throw new Error('issueQueue accessed before initialization. Use getIssueQueue() instead or call ensureInitialized() first.');

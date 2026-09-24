@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { normalizeRepoConfig } from '../routes/configRepoValidation.js';
+import { normalizeRepoConfig, preserveRepoDeployment } from '../routes/configRepoValidation.js';
 
 test('repository config defaults missing automatic failed-CI follow-up to false', () => {
   const normalized = normalizeRepoConfig({
@@ -13,6 +13,52 @@ test('repository config defaults missing automatic failed-CI follow-up to false'
   if (normalized.ok) {
     assert.equal(normalized.value.autoFollowupOnFailedCi, false);
     assert.deepEqual(normalized.value.visualPreview, { enabled: false, types: ['image'] });
+  }
+});
+
+test('repository deployment config is retained and validates the explicit workflow and production branch', () => {
+  const normalized = normalizeRepoConfig({
+    id: 'repo-wordrush',
+    name: 'nrdgrrrl/WordRush',
+    enabled: true,
+    deployment: {
+      enabled: true,
+      workflow: 'deploy-production.yml',
+      productionBranch: 'master',
+      commitInput: 'commit',
+      modeInput: 'mode',
+      deployValue: 'deploy',
+      dryRunValue: 'dry-run'
+    }
+  });
+  assert.equal(normalized.ok, true);
+  if (normalized.ok) assert.deepEqual(normalized.value.deployment, {
+    enabled: true, workflow: 'deploy-production.yml', productionBranch: 'master',
+    commitInput: 'commit', modeInput: 'mode', deployValue: 'deploy', dryRunValue: 'dry-run'
+  });
+});
+
+test('repository deployment config rejects paths and missing workflow inputs', () => {
+  for (const deployment of [
+    { enabled: true, workflow: '../workflow.yml', productionBranch: 'master', commitInput: 'commit', modeInput: 'mode', deployValue: 'deploy', dryRunValue: 'dry-run' },
+    { enabled: true, workflow: 'deploy.yml', productionBranch: 'master', commitInput: '', modeInput: 'mode', deployValue: 'deploy', dryRunValue: 'dry-run' }
+  ]) {
+    const normalized = normalizeRepoConfig({ id: 'repo-1', name: 'nrdgrrrl/WordRush', enabled: true, deployment });
+    assert.equal(normalized.ok, false);
+  }
+});
+
+test('repository updates preserve existing deployment settings when unrelated clients omit them', () => {
+  const deployment = {
+    enabled: true, workflow: 'deploy-production.yml', productionBranch: 'master',
+    commitInput: 'commit', modeInput: 'mode', deployValue: 'deploy', dryRunValue: 'dry-run'
+  };
+  const previous = [{ id: 'repo-wordrush', name: 'nrdgrrrl/WordRush', enabled: true, deployment }];
+  const incoming = [{ id: 'repo-wordrush', name: 'nrdgrrrl/WordRush', enabled: true }];
+  const normalized = [normalizeRepoConfig(incoming[0])];
+  assert.equal(normalized[0].ok, true);
+  if (normalized[0].ok) {
+    assert.deepEqual(preserveRepoDeployment(previous as never, [normalized[0].value], incoming)[0].deployment, deployment);
   }
 });
 

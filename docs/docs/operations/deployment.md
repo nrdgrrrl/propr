@@ -213,6 +213,18 @@ docker run --rm \
   propr/launcher:latest
 ```
 
+When using a backend-only deployment secret, add this optional mount to the
+launcher command:
+
+```bash
+-v "$PWD/deployment-secrets.env:/app/deployment-secrets.env:ro" \
+```
+
+The launcher passes this file to the worker service only; keep it outside
+`.env` so other services and agent containers do not receive it. See [PR
+deployment commands](../features/pr-commands.md#deployment-secret-configuration)
+for the required contents and permissions.
+
 The private-key mount (`-v ...your-app-private-key.pem...`) is needed **only in
 own GitHub App mode**, where it pairs with `GH_PRIVATE_KEY_PATH=/app/config/...`
 in `.env`. In relay mode (`GH_AUTH_MODE=relay`) there is no key file — omit that

@@ -16,6 +16,8 @@ export interface OrchestratorConfig {
   readonly network: string;
   readonly envFileLocal: string;
   readonly envFileHost?: string;
+  /** Optional secret env file passed to the worker service only. */
+  readonly deploymentSecretsFileLocal?: string;
   /** Optional private host subtree for service and child-agent temp bind sources. */
   readonly hostTempRoot?: string;
   /** Explicit NODE_ENV read from the stack env file, if present. */

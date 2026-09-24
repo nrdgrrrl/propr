@@ -130,6 +130,8 @@ services:
       GH_APP_ID: ${GH_APP_ID}
       GH_APP_PRIVATE_KEY: ${GH_APP_PRIVATE_KEY}
       GH_WEBHOOK_SECRET: ${GH_WEBHOOK_SECRET}
+      # Optional backend-only Actions dispatch credential; never set on daemon/API.
+      PROPR_DEPLOYMENT_GITHUB_TOKEN: ${PROPR_DEPLOYMENT_GITHUB_TOKEN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}

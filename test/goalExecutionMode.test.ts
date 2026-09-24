@@ -23,6 +23,7 @@ import {
   probeGoalCapability,
 } from '../packages/core/src/agents/goalCapabilities.ts';
 import { buildDockerArgs as buildClaudeDockerArgs } from '../packages/core/src/agents/impl/utils/dockerArgsBuilder.ts';
+import { buildAgentSubprocessEnvironment } from '../packages/core/src/claude/docker/dockerExecutor.ts';
 import { buildCodexAppServerDockerArgs, buildCodexDockerArgs } from '../packages/core/src/agents/impl/utils/codexDockerArgsBuilder.ts';
 import { AntigravityAgent } from '../packages/core/src/agents/impl/AntigravityAgent.ts';
 import type { Agent, AgentConfig } from '../packages/core/src/agents/types.ts';
@@ -173,6 +174,7 @@ describe('native goal provider contract', () => {
       PROPR_EXECUTION_MODE: 'goal',
       PROPR_GOAL_LAUNCH_STRATEGY: 'direct',
       GH_TOKEN: 'must-not-leak',
+      PROPR_DEPLOYMENT_GITHUB_TOKEN: 'backend-dispatch-secret',
     };
     const claude = buildClaudeDockerArgs(baseConfig('claude'), 1000, {
       ...common, executionMode: 'goal', environment,
@@ -194,7 +196,19 @@ describe('native goal provider contract', () => {
       assert.equal(args.some(argument => argument === 'GH_TOKEN=token'), false);
       assert.equal(args.some(argument => argument === 'GITHUB_TOKEN=token'), false);
       assert.equal(args.some(argument => argument.includes('must-not-leak')), false);
+      assert.equal(args.some(argument => argument.includes('backend-dispatch-secret')), false);
     }
+  });
+
+  test('backend deployment credential is never forwarded to ordinary agent containers', () => {
+    const args = buildClaudeDockerArgs(baseConfig('claude'), 1000, {
+      ...common,
+      environment: { PROPR_DEPLOYMENT_GITHUB_TOKEN: 'backend-dispatch-secret' },
+    });
+    assert.equal(args.some(argument => argument.includes('backend-dispatch-secret')), false);
+    const subprocessEnv = buildAgentSubprocessEnvironment({ PROPR_DEPLOYMENT_GITHUB_TOKEN: 'backend-dispatch-secret', SAFE_AGENT_SETTING: 'available' });
+    assert.equal(subprocessEnv.PROPR_DEPLOYMENT_GITHUB_TOKEN, undefined);
+    assert.equal(subprocessEnv.SAFE_AGENT_SETTING, 'available');
   });
 
   test('Codex keeps one-shot arguments unchanged and goal mode exposes App Server', () => {

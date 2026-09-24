@@ -49,6 +49,8 @@ The daemon supports three intake modes, selected by `GITHUB_EVENT_INTAKE_MODE`, 
 
 The intake mode is independent of how the backend authenticates to GitHub (`GH_AUTH_MODE`); see [GitHub Authentication](../operations/github-auth.md). `GH_WEBHOOK_SECRET` is required only for `direct_webhook` and is not used by `routing_websocket` or `polling`.
 
+Polling PR-comment intake deliberately lists only open pull requests. Merged-PR `/deploy` commands therefore require event-driven intake (`routing_websocket` or `direct_webhook`); polling mode does not revisit closed PR conversations.
+
 > **Migration:** the legacy boolean `ENABLE_GITHUB_WEBHOOKS` is **deprecated** and no longer selects an intake mode. If it is still set, the daemon logs a deprecation warning at startup and ignores it. Use `GITHUB_EVENT_INTAKE_MODE` (`routing_websocket`, `polling`, or `direct_webhook`) instead; leaving it unset resolves to `routing_websocket`.
 
 Each intake event receives a correlation ID so the resulting queue job, worker logs, and task record can be traced back to the original GitHub event.

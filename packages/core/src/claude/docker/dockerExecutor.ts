@@ -206,13 +206,20 @@ export async function inspectLegacyDockerContainerLivenessForTask(taskId: string
     }
 }
 
+export function buildAgentSubprocessEnvironment(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+    return Object.fromEntries(
+        Object.entries(env).filter(([name]) => name !== 'PROPR_DEPLOYMENT_GITHUB_TOKEN'),
+    ) as NodeJS.ProcessEnv;
+}
+
 function spawnCommandProcess(
     executablePath: string,
     args: string[],
     cwd: string | undefined,
     stdinData: string | undefined,
 ): ChildProcess {
-    const spawnOptions: SpawnOptions = { stdio: [stdinData ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: process.env };
+    const agentSubprocessEnv = buildAgentSubprocessEnvironment();
+    const spawnOptions: SpawnOptions = { stdio: [stdinData ? 'pipe' : 'ignore', 'pipe', 'pipe'], env: agentSubprocessEnv };
     if (cwd && fs.existsSync(cwd)) spawnOptions.cwd = cwd;
     else if (cwd) logger.warn({ cwd }, 'Working directory does not exist, spawning from current directory');
 

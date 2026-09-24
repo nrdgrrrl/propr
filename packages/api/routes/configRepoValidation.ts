@@ -90,6 +90,19 @@ export function preserveRepoAutoFollowup(
   });
 }
 
+export function preserveRepoDeployment(
+  previousRepos: RepoToMonitor[],
+  normalizedRepos: RepoToMonitor[],
+  incomingRepos: unknown[]
+): RepoToMonitor[] {
+  return normalizedRepos.map((repo, index) => {
+    const incomingRepo = incomingRepos[index] as Partial<RepoToMonitor>;
+    if (incomingRepo.deployment !== undefined) return repo;
+    const previousRepo = previousRepos.find(candidate => candidate.id === repo.id);
+    return previousRepo?.deployment ? { ...repo, deployment: previousRepo.deployment } : repo;
+  });
+}
+
 function visualPreviewSettingsEqual(left: VisualPreviewSettings, right: VisualPreviewSettings): boolean {
   // GET materializes legacy missing plans as auto; that alone is not an edit.
   return (left.githubAttachmentPlan ?? 'auto') === (right.githubAttachmentPlan ?? 'auto')
@@ -200,6 +213,29 @@ export function normalizeRepoConfig(repo: unknown): ValidationResult<RepoToMonit
   if (!baseBranch.ok) return baseBranch;
   const defaultBranch = normalizeOptionalBranchName(candidate.defaultBranch, 'defaultBranch', name);
   if (!defaultBranch.ok) return defaultBranch;
+  let deployment: RepoToMonitor['deployment'];
+  if (candidate.deployment !== undefined) {
+    const raw = candidate.deployment;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return failure(`Invalid deployment configuration for ${name}`);
+    const deploy = raw as unknown as Record<string, unknown>;
+    if (typeof deploy.enabled !== 'boolean') return failure(`deployment.enabled must be a boolean for ${name}`);
+    const required = ['workflow', 'productionBranch', 'commitInput', 'modeInput', 'deployValue', 'dryRunValue'] as const;
+    for (const key of required) if (typeof deploy[key] !== 'string' || !(deploy[key] as string).trim()) return failure(`deployment.${key} must be a non-empty string for ${name}`);
+    const workflow = (deploy.workflow as string).trim();
+    if (workflow.includes('/') || workflow.includes('\\') || !/^[A-Za-z0-9_.-]+\.ya?ml$/i.test(workflow)) return failure(`deployment.workflow must be a workflow filename for ${name}`);
+    if ((deploy.commitInput as string).trim() === (deploy.modeInput as string).trim()) return failure(`deployment.commitInput and deployment.modeInput must be different for ${name}`);
+    const productionBranch = normalizeOptionalBranchName(deploy.productionBranch, 'deployment.productionBranch', name);
+    if (!productionBranch.ok || !productionBranch.value) return failure(`Invalid deployment.productionBranch for ${name}`);
+    deployment = {
+      enabled: deploy.enabled,
+      workflow,
+      productionBranch: productionBranch.value,
+      commitInput: (deploy.commitInput as string).trim(),
+      modeInput: (deploy.modeInput as string).trim(),
+      deployValue: (deploy.deployValue as string).trim(),
+      dryRunValue: (deploy.dryRunValue as string).trim()
+    };
+  }
   if (candidate.autoFollowupOnFailedCi !== undefined && typeof candidate.autoFollowupOnFailedCi !== 'boolean') {
     return failure(`Invalid autoFollowupOnFailedCi format for ${name}: must be a boolean`);
   }
@@ -214,6 +250,7 @@ export function normalizeRepoConfig(repo: unknown): ValidationResult<RepoToMonit
     visualPreview: visualPreview.value,
     alias: alias.value,
     baseBranch: baseBranch.value,
-    defaultBranch: defaultBranch.value
+    defaultBranch: defaultBranch.value,
+    ...(deployment ? { deployment } : {})
   });
 }

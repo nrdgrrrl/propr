@@ -92,6 +92,7 @@ function buildEnvironmentVariableArgs(
     for (const source of sources) {
         if (!source) continue;
         for (const [key, value] of Object.entries(source)) {
+            if (key === 'PROPR_DEPLOYMENT_GITHUB_TOKEN') continue;
             if (omitGitHubCredentials && isGitHubCredentialEnvironmentVariable(key)) continue;
             args.push('-e', `${key}=${value}`);
         }

@@ -33,6 +33,17 @@ export interface RepoToMonitor {
     alias?: string;          // Optional display name
     baseBranch?: string;     // Optional specific branch to monitor
     defaultBranch?: string;  // Optional repository default branch for demo metadata
+    deployment?: RepositoryDeploymentConfig;
+}
+
+export interface RepositoryDeploymentConfig {
+    enabled: boolean;
+    workflow: string;
+    productionBranch: string;
+    commitInput: string;
+    modeInput: string;
+    deployValue: string;
+    dryRunValue: string;
 }
 
 export type VisualPreviewType = 'image' | 'video';

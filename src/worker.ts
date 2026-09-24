@@ -29,6 +29,7 @@ import { processTaskImportJob } from './jobs/processTaskImportJob.js';
 import { processSystemTaskJob } from './jobs/processSystemTaskJob.js';
 import { processMergeConflictJob } from './jobs/processMergeConflictJob.js';
 import { processGoalJob } from './jobs/processGoalJob.js';
+import { processDeploymentJob } from './jobs/processDeploymentJob.js';
 import { createConfiguredMainWorker } from './workerFactory.js';
 import type { MainWorker } from './workerFactory.js';
 import {
@@ -340,6 +341,7 @@ async function startWorker(options: WorkerOptions = {}): Promise<StartedWorker> 
             processSystemTaskJob,
             processMergeConflictJob,
             processGoalJob,
+            processDeploymentJob,
         },
         beforeRun: configuredWorker => {
             taskStateFinalizers = attachPRCommentTaskStateFinalizers(configuredWorker, stateManager);

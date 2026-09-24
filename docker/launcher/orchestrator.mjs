@@ -261,6 +261,12 @@ export function resolveConfig(env = process.env, overrides = {}) {
     const stack = overrides.stack ?? env.PROPR_STACK ?? 'propr';
     const network = overrides.network ?? env.PROPR_NETWORK ?? `${stack}-net`;
     const envFileLocal = overrides.envFileLocal ?? env.PROPR_LAUNCHER_ENV_FILE ?? '/app/.env';
+    // Optional secret input used only by the worker. In the native CLI this is
+    // read from the host stack directory; the container launcher can use the
+    // same path when operators bind-mount the file beside /app/.env.
+    const deploymentSecretsFileLocal = overrides.deploymentSecretsFileLocal
+        ?? env.PROPR_LAUNCHER_DEPLOYMENT_SECRETS_FILE
+        ?? join(dirname(envFileLocal), 'deployment-secrets.env');
     const envFileHost = overrides.envFileHost ?? env.PROPR_ENV_FILE;
     // NODE_ENV is special: Docker receives it from the stack's --env-file, not
     // from the CLI/launcher process environment. Inspect that exact source so a
@@ -371,7 +377,7 @@ export function resolveConfig(env = process.env, overrides = {}) {
     const uiPublicApiUrl = get('PROPR_UI_PUBLIC_API_URL') || proprInstanceProxyUrl(proprInstanceId) || undefined;
 
     return Object.freeze({
-        stack, network, envFileLocal, envFileHost, nodeEnv,
+        stack, network, envFileLocal, envFileHost, deploymentSecretsFileLocal, nodeEnv,
         hostTempRoot,
         validateHostPaths: overrides.validateHostPaths === true,
         hostData, hostLogs, hostRepos, managedCredentialsDir,
@@ -1039,6 +1045,9 @@ export function buildServiceSpec(cfg, service) {
             ]);
         case 'worker':
             return appSpec(cfg, ['dist/src/worker.js'], [
+                ...(isReadableFile(cfg.deploymentSecretsFileLocal)
+                    ? ['--env-file', cfg.deploymentSecretsFileLocal]
+                    : []),
                 '-v', `${cfg.hostRepos}:/usr/src/app/repos`,
                 '-v', `${resolveHostTempPath('/tmp/claude-logs', cfg.hostTempRoot)}:/tmp/claude-logs`,
                 '--ulimit', 'nofile=65536:65536',

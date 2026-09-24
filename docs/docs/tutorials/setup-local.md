@@ -99,7 +99,7 @@ If you take the own-App path, register the App with these repository permissions
 | Metadata | Read-only |
 | Issues | Read and write |
 | Pull Requests | Read and write |
-| Actions | Read-only (optional; used to read CI check results) |
+| Actions | Read-only for CI check results. Own-App `/deploy` also needs write; relay mode uses a separate worker-only fine-grained token with Actions: write. See [PR commands](../features/pr-commands.md#deploy). |
 
 **3. Edit the rest of `.env`.** The relevant local-stack values:
 

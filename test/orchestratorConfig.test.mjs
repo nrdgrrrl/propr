@@ -224,6 +224,22 @@ test('launcher derives and mounts managed agent credentials without another host
   }
 });
 
+test('deployment secret env file is passed to the CLI worker only', () => {
+  const rootDir = mkdtempSync(join(tmpdir(), 'propr-deploy-secret-'));
+  const envFileLocal = join(rootDir, '.env');
+  const deploymentSecretsFileLocal = join(rootDir, 'deployment-secrets.env');
+  writeFileSync(envFileLocal, 'NODE_ENV=production\n');
+  writeFileSync(deploymentSecretsFileLocal, 'PROPR_DEPLOYMENT_GITHUB_TOKEN=test-token\n', { mode: 0o600 });
+  const cfg = resolveHostConfig({ rootDir, env: {}, manifestPath });
+  const workerArgs = buildServiceSpec(cfg, 'worker').args;
+
+  assert.equal(cfg.deploymentSecretsFileLocal, deploymentSecretsFileLocal);
+  assert.deepEqual(workerArgs.filter((arg, index) => arg === '--env-file' && workerArgs[index + 1] === deploymentSecretsFileLocal), ['--env-file']);
+  for (const service of ['daemon', 'analysis-worker', 'indexing-worker', 'api']) {
+    assert.ok(!buildServiceSpec(cfg, service).args.includes(deploymentSecretsFileLocal), `${service} must not receive the deployment secret file`);
+  }
+});
+
 test('process env values override stack .env values', () => {
   const rootDir = mkdtempSync(join(tmpdir(), 'propr-orch-'));
   writeFileSync(join(rootDir, '.env'), [
