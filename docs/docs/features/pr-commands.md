@@ -25,12 +25,13 @@ To **take over an existing PR** for ongoing work (so that natural follow-up comm
 | `/switch <model-id>` | You want future PR work to use a different model | No, unless you include follow-up instructions | [`/switch`](#switch) |
 | `/use <model-id>` | You want one immediate follow-up run with a temporary model | Yes | [`/use`](#use) |
 | `/ultrafix` | You want an automated review-fix loop | Yes | [`/ultrafix`](#ultrafix) |
+| `/deploy` | You want ProPR to dispatch the repository's configured production workflow | No | [`/deploy`](#deploy) |
 
 ## Syntax Rules
 
 - The slash command must be on the first line of the PR comment. A comment with leading blank lines or text before the command is treated as a normal follow-up comment.
 - Arguments go on the same line as the command (for example `/review llm-claude-opus5` or `/ultrafix goal=8 max=10`).
-- Lines below the command become extra instructions for the run.
+- Lines below agent commands become extra instructions for the run. `/deploy` accepts only `/deploy` or `/deploy dry-run` and rejects all other arguments.
 - Both top-level PR comments and line-level review comments are processed; line-level comments carry their file, line, and diff context to the agent.
 
 ## Model IDs
@@ -256,6 +257,37 @@ The loop is controlled by the visible `ultrafix` PR label, which acts as a circu
 - **Max cycles exhausted**: ProPR posts a warning comment with the requested goal and the last score, and manual review takes over.
 
 Reserve `/ultrafix` for stronger cleanup passes. For small edits and direct changes, a normal PR comment is usually better.
+
+### `/deploy`
+
+`/deploy` is a deterministic ProPR backend operation. It does not start an LLM task or pass credentials into an agent container. ProPR accepts it only as a top-level PR conversation comment from a user allowed by the configured GitHub user whitelist, for a repository with deployment explicitly enabled, and after the PR has merged. Other comments on closed PRs do not start agent work.
+
+```text
+/deploy
+/deploy dry-run
+```
+
+ProPR reads the configured production branch HEAD through GitHub and passes that exact SHA to the one workflow configured for the repository. The comment cannot choose a branch, SHA, workflow, or other workflow inputs. ProPR reports the SHA and Actions run URL, monitors the run, then reports its result. Repeated delivery of the same comment is deduplicated; the backend queue operation is not retried after dispatch begins.
+
+To configure a repository, include a `deployment` object on its entry in the admin `POST /api/config/repos` `repos_to_monitor` array, preserving the other current repository entries in that array. The API validates and persists it with the monitored repository configuration:
+
+```json
+{
+  "enabled": true,
+  "name": "nrdgrrrl/WordRush",
+  "deployment": {
+    "enabled": true,
+    "workflow": "deploy-production.yml",
+    "productionBranch": "master",
+    "commitInput": "commit",
+    "modeInput": "mode",
+    "deployValue": "deploy",
+    "dryRunValue": "dry-run"
+  }
+}
+```
+
+For this feature, the GitHub App installation needs **Actions: write** on each configured repository. In GitHub, open the App's **Permissions & events → Repository permissions**, set **Actions** to **Read and write**, save the change, then approve the permission update for the installation and confirm it has access to the configured repository. Keep the workflow's Tailscale, SSH, and production credentials in GitHub Actions secrets and use the workflow's existing safety checks as the production trust boundary. ProPR reports permission failures without switching to a personal access token or sending credentials to an agent.
 
 ## Completion Comments
 

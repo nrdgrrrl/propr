@@ -146,7 +146,6 @@ describe('parseSlashCommand', () => {
     });
 
     test('does not match unknown commands', () => {
-        assert.strictEqual(parseSlashCommand('/deploy'), null);
         assert.strictEqual(parseSlashCommand('/unknown'), null);
     });
 
@@ -262,6 +261,15 @@ describe('buildCommandMeta', () => {
         const parsed = parseSlashCommand('/merge')!;
         const meta = buildCommandMeta(parsed);
         assert.deepStrictEqual(meta, { mode: 'merge' });
+    });
+
+    test('parses /deploy and its only optional argument', () => {
+        assert.deepStrictEqual(parseSlashCommand('/deploy'), { command: 'deploy', args: [], instructions: '' });
+        assert.deepStrictEqual(parseSlashCommand('/deploy dry-run'), { command: 'deploy', args: ['dry-run'], instructions: '' });
+        assert.deepStrictEqual(buildCommandMeta(parseSlashCommand('/deploy')!), { mode: 'deploy', deploymentMode: 'deploy' });
+        assert.deepStrictEqual(buildCommandMeta(parseSlashCommand('/deploy dry-run')!), { mode: 'deploy', deploymentMode: 'dry-run' });
+        assert.deepStrictEqual(buildCommandMeta(parseSlashCommand('/deploy master')!), { mode: 'deploy', deploymentMode: 'invalid' });
+        assert.deepStrictEqual(buildCommandMeta(parseSlashCommand('/deploy dry-run extra')!), { mode: 'deploy', deploymentMode: 'invalid' });
     });
 
     test('builds switch meta with no models', () => {

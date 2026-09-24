@@ -114,6 +114,7 @@ export type {
     SystemTaskJobData,
     IndexingJobData,
     MergeConflictJobData,
+    DeploymentJobData,
     JobData,
     JobResult,
     ClaudeResult,
@@ -142,6 +143,7 @@ export { triggerNextPendingIssue } from './webhook/planIssueTrigger.js';
 export type { CommentPayload, CommentEventConfig, CommentEventType, UltrafixDeps } from './webhook/commentEventHandler.js';
 export { extractLlmFromKeywords, stripKeywordsFromBody, buildCodeContext, isReviewComment, extractLlmFromLabels } from './webhook/commentEventHelpers.js';
 export { parseSlashCommand, buildCommandMeta } from './webhook/slashCommandParser.js';
+export { isDeploymentCommentAuthorized } from './webhook/deploymentAuthorization.js';
 export type { ParsedSlashCommand, SlashCommandName, CommandMeta, ReviewCommandMeta, FixCommandMeta, MergeCommandMeta, UltrafixCommandMeta } from './webhook/slashCommandParser.js';
 export { handlePullRequestConflictDetection, handlePushConflictDetection, handleMergeCommand } from './webhook/mergeConflictDetector.js';
 export type { ConflictDetectionOutcome, ConflictDetectionResult, HandleMergeCommandOptions } from './webhook/mergeConflictDetector.js';

@@ -181,7 +181,18 @@ export interface MergeConflictJobData {
     systemGenerated: true;    // Distinguishes from user-authored follow-up comments
 }
 
-export type JobData = IssueJobData | CommentJobData | TaskImportJobData | GoalJobData | AnalysisJobData | SystemTaskJobData | IndexingJobData | MergeConflictJobData;
+/** Backend-only deployment operation. This job is never handed to an agent container. */
+export interface DeploymentJobData {
+    repoOwner: string;
+    repoName: string;
+    pullRequestNumber: number;
+    commentId: number;
+    requestingUser: string;
+    mode: 'deploy' | 'dry-run';
+    correlationId: string;
+}
+
+export type JobData = IssueJobData | CommentJobData | TaskImportJobData | GoalJobData | AnalysisJobData | SystemTaskJobData | IndexingJobData | MergeConflictJobData | DeploymentJobData;
 
 export interface ClaudeOutputResult {
     type?: string;

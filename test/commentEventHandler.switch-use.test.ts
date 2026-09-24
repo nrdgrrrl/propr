@@ -57,6 +57,9 @@ await mock.module('bullmq', {
                 getDelayed: mock.fn(async () => mockDelayedJobs),
             };
         },
+        QueueEvents: function QueueEvents() {
+            return { on: mock.fn(), close: mock.fn() };
+        },
         Worker: function Worker() {
             return { on: mock.fn(), close: mock.fn() };
         },
@@ -107,12 +110,14 @@ await mock.module('../packages/core/src/utils/logger.js', {
 });
 
 // Mock configManager
+let mockMonitoredRepos: Array<Record<string, unknown>> = [];
 const actualConfigManager = await import('../packages/core/src/config/configManager.js');
 await mock.module('../packages/core/src/config/configManager.js', {
     namedExports: {
         ...actualConfigManager,
         loadFollowupIgnoreKeywords: mock.fn(async () => []),
         loadMonitoredRepos: mock.fn(async () => []),
+        loadMonitoredReposRaw: mock.fn(async () => mockMonitoredRepos),
         loadAiPrimaryTag: mock.fn(async () => 'AI'),
         loadPrimaryProcessingLabels: mock.fn(async () => ['AI']),
         hasValidTriggerLabel: mock.fn(async (labels: Array<{ name: string } | string>) => (labels ?? []).some(l => (typeof l === 'string' ? l : l.name) === 'AI')),
@@ -427,7 +432,7 @@ describe('commentEventHandler — /switch command', () => {
 
         assert.strictEqual(mockSafeUpdateLabels.mock.callCount(), 0);
         assert.strictEqual(mockQueueAdd.mock.callCount(), 0);
-        assert.strictEqual(mockOctokit.request.mock.callCount(), 0);
+        assert.strictEqual(mockOctokit.request.mock.callCount(), 1, 'PR state is read to prevent closed-PR work');
         const warnCalls = mockLoggerInstance.warn.mock.calls;
         const invalidWarn = warnCalls.find(
             (c: { arguments: unknown[] }) => typeof c.arguments[1] === 'string' && c.arguments[1].includes('unrecognized model')
@@ -633,8 +638,97 @@ describe('commentEventHandler — /merge command trigger label gate', () => {
         assert.strictEqual(mockHandleMergeCommand.mock.callCount(), 1);
         const mergeArgs = mockHandleMergeCommand.mock.calls[0].arguments[0] as { prNumber: number; owner: string; repoName: string };
         assert.strictEqual(mergeArgs.prNumber, 42);
-        // The PR was fetched once for the gate and reused by the handler
-        assert.strictEqual(mockOctokit.request.mock.callCount(), 1);
+        // PR state and labels are both read before the command handler runs.
+        assert.strictEqual(mockOctokit.request.mock.callCount(), 2);
+    });
+});
+
+describe('commentEventHandler — /deploy command', () => {
+    const originalWhitelist = process.env.GITHUB_USER_WHITELIST;
+    beforeEach(() => {
+        mockQueueAdd.mock.resetCalls();
+        mockOctokit.request.mock.resetCalls();
+        mockMonitoredRepos = [{
+            name: 'test/repo', enabled: true,
+            deployment: { enabled: true, workflow: 'deploy.yml', productionBranch: 'stable', commitInput: 'commit', modeInput: 'mode', deployValue: 'deploy', dryRunValue: 'dry-run' },
+        }];
+        process.env.GITHUB_USER_WHITELIST = 'operator';
+        mockOctokit.request.mock.mockImplementation(async (route: string) => route.startsWith('GET ')
+            ? { data: { state: 'closed', merged_at: '2026-01-01T00:00:00Z', head: { ref: 'feature' }, labels: [] } }
+            : { data: {} });
+    });
+    after(() => {
+        if (originalWhitelist === undefined) delete process.env.GITHUB_USER_WHITELIST;
+        else process.env.GITHUB_USER_WHITELIST = originalWhitelist;
+    });
+
+    test('queues a merged PR deployment as a backend job with durable comment identity', async () => {
+        const event = createPRCommentEvent('/deploy');
+        event.repository.owner.login = 'test';
+        event.repository.name = 'repo';
+        event.comment.user.login = 'operator';
+        event.comment.user.type = 'User';
+        const disposition = await processCommentEvent(event, 'issue_comment', 'corr-deploy', createTestConfig({ loadDeploymentRepos: async () => mockMonitoredRepos as never }));
+        assert.equal(disposition.status, 'accepted');
+        assert.equal(mockQueueAdd.mock.callCount(), 1);
+        const [name, jobData, options] = mockQueueAdd.mock.calls[0].arguments as [string, Record<string, unknown>, Record<string, unknown>];
+        assert.equal(name, 'processDeployment');
+        assert.equal(jobData.mode, 'deploy');
+        assert.equal(jobData.pullRequestNumber, 42);
+        assert.match(String(options.jobId), /^deploy-test-repo-/);
+        assert.equal(options.attempts, 1);
+    });
+
+    test('duplicate delivery of one deploy comment only enqueues one operation', async () => {
+        const event = createPRCommentEvent('/deploy dry-run');
+        event.repository.owner.login = 'test';
+        event.repository.name = 'repo';
+        event.comment.user.login = 'operator';
+        const config = createTestConfig({ loadDeploymentRepos: async () => mockMonitoredRepos as never });
+        await processCommentEvent(event, 'issue_comment', 'corr-deploy-first', config);
+        await processCommentEvent(event, 'issue_comment', 'corr-deploy-replay', config);
+        assert.equal(mockQueueAdd.mock.callCount(), 1);
+        assert.equal(mockQueueAdd.mock.calls[0].arguments[1] && (mockQueueAdd.mock.calls[0].arguments[1] as Record<string, unknown>).mode, 'dry-run');
+    });
+
+    test('does not queue deployment for unlisted users and closed PRs do not start agent follow-up', async () => {
+        const unauthorized = createPRCommentEvent('/deploy');
+        unauthorized.comment.user.login = 'intruder';
+        assert.deepEqual(await processCommentEvent(unauthorized, 'issue_comment', 'corr-deploy-unauthorized', createTestConfig()), {
+            status: 'ignored', reason: 'deploy_not_explicitly_authorized',
+        });
+        assert.equal(mockQueueAdd.mock.callCount(), 0);
+
+        const ordinary = createPRCommentEvent('please update this code');
+        ordinary.comment.user.login = 'operator';
+        assert.deepEqual(await processCommentEvent(ordinary, 'issue_comment', 'corr-closed-followup', createTestConfig()), {
+            status: 'ignored', reason: 'pull_request_closed',
+        });
+
+        const reviewFollowup = createPRReviewCommentEvent('please fix this line');
+        reviewFollowup.comment.user.login = 'operator';
+        assert.deepEqual(await processCommentEvent(reviewFollowup, 'pull_request_review_comment', 'corr-closed-review-followup', createTestConfig()), {
+            status: 'ignored', reason: 'pull_request_closed',
+        });
+        assert.equal(mockQueueAdd.mock.callCount(), 0);
+    });
+
+    test('rejects arbitrary deploy arguments and reports missing repository configuration without queueing', async () => {
+        const invalid = createPRCommentEvent('/deploy refs/heads/other');
+        invalid.repository.owner.login = 'test';
+        invalid.repository.name = 'repo';
+        invalid.comment.user.login = 'operator';
+        await processCommentEvent(invalid, 'issue_comment', 'corr-deploy-invalid', createTestConfig({ loadDeploymentRepos: async () => mockMonitoredRepos as never }));
+        assert.equal(mockQueueAdd.mock.callCount(), 0);
+
+        mockMonitoredRepos = [];
+        const missing = createPRCommentEvent('/deploy dry-run');
+        missing.repository.owner.login = 'test';
+        missing.repository.name = 'repo';
+        missing.comment.user.login = 'operator';
+        await processCommentEvent(missing, 'issue_comment', 'corr-deploy-missing-config', createTestConfig({ loadDeploymentRepos: async () => mockMonitoredRepos as never }));
+        assert.equal(mockQueueAdd.mock.callCount(), 0);
+        assert.equal(mockOctokit.request.mock.calls.some(call => String(call.arguments[0]).startsWith('POST ')), true);
     });
 });
 

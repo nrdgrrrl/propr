@@ -7,9 +7,10 @@ import type {
     MergeConflictJobData,
     SystemTaskJobData,
     TaskImportJobData,
+    DeploymentJobData,
 } from '@propr/core';
 
-export type MainJobData = IssueJobData | CommentJobData | GoalJobData | TaskImportJobData | SystemTaskJobData | MergeConflictJobData;
+export type MainJobData = IssueJobData | CommentJobData | GoalJobData | TaskImportJobData | SystemTaskJobData | MergeConflictJobData | DeploymentJobData;
 export type MainWorker = Worker<MainJobData, JobResult>;
 
 export interface MainJobProcessors {
@@ -19,6 +20,7 @@ export interface MainJobProcessors {
     processSystemTaskJob: (job: Job<SystemTaskJobData>) => Promise<JobResult>;
     processMergeConflictJob: (job: Job<MergeConflictJobData>) => Promise<JobResult>;
     processGoalJob: (job: Job<GoalJobData>) => Promise<JobResult>;
+    processDeploymentJob: (job: Job<DeploymentJobData>) => Promise<JobResult>;
 }
 
 export type MainWorkerFactory = (
@@ -42,6 +44,8 @@ export function createMainJobProcessor(processors: MainJobProcessors) {
                 return processors.processMergeConflictJob(job as Job<MergeConflictJobData>);
             case 'processGoal':
                 return processors.processGoalJob(job as Job<GoalJobData>);
+            case 'processDeployment':
+                return processors.processDeploymentJob(job as Job<DeploymentJobData>);
             default:
                 throw new Error(`Unknown job type: ${job.name}`);
         }

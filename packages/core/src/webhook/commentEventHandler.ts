@@ -1,9 +1,9 @@
 /* eslint-disable max-lines */
 import logger, { generateCorrelationId } from '../utils/logger.js';
 import { handleError } from '../utils/errorHandler.js';
-import { getIssueQueue, COMMENT_BATCH_DELAY_MS, type CommentJobData, type UnprocessedComment } from '../queue/taskQueue.js';
+import { getIssueQueue, COMMENT_BATCH_DELAY_MS, type CommentJobData, type DeploymentJobData, type UnprocessedComment } from '../queue/taskQueue.js';
 import { filterCommentByAuthor, checkCommentTrigger, checkCommentIgnore } from '../utils/commentFilters.js';
-import { loadFollowupIgnoreKeywords, hasValidTriggerLabel } from '../config/configManager.js';
+import { loadFollowupIgnoreKeywords, hasValidTriggerLabel, loadMonitoredReposRaw } from '../config/configManager.js';
 import { getAuthenticatedOctokit } from '../auth/githubAuth.js';
 import { getPendingPrCommentsKey } from '../utils/constants.js';
 import { withRetry } from '../utils/retryHandler.js';
@@ -23,6 +23,7 @@ import { getBotUsername } from '../daemon/configLoader.js';
 import { AgentRegistry } from '../agents/AgentRegistry.js';
 import type { DeliveryDisposition } from '../intake/routingWebSocketProtocol.js';
 import { isCiFailureFollowupComment, stripCiFailureFollowupMarker } from './ciFailureFollowup.js';
+import { isDeploymentCommentAuthorized } from './deploymentAuthorization.js';
 
 export interface UltrafixDeps {
     loadUltrafixRatingGoal: () => Promise<number>;
@@ -75,6 +76,8 @@ export interface CommentEventConfig {
     PR_FOLLOWUP_TRIGGER_KEYWORDS: string[];
     MODEL_LABEL_PATTERN?: string;
     processCommentEvent?: typeof processCommentEvent;
+    /** Test seam for repository policy lookup; production uses persisted monitored repos. */
+    loadDeploymentRepos?: typeof loadMonitoredReposRaw;
 }
 
 export type CommentPayload = IssueCommentEvent | PullRequestReviewCommentEvent;
@@ -101,8 +104,10 @@ function getCommentRevisionIdentity(comment: Pick<PRComment, 'updated_at' | 'bod
     return `${comment.updated_at}:${contentDigest}`;
 }
 
-async function claimCommentForProcessing(redisClient: Redis, key: string): Promise<boolean> {
-    const result = await redisClient.set(key, Date.now().toString(), 'EX', 86400, 'NX');
+async function claimCommentForProcessing(redisClient: Redis, key: string, ttlSeconds = 86400): Promise<boolean> {
+    const result = ttlSeconds > 0
+        ? await redisClient.set(key, Date.now().toString(), 'EX', ttlSeconds, 'NX')
+        : await redisClient.set(key, Date.now().toString(), 'NX');
     return result === 'OK';
 }
 
@@ -261,6 +266,44 @@ async function handleSlashCommand(opts: SlashCommandHandlerOptions): Promise<voi
     const { redisClient } = config;
     const commandMeta = buildCommandMeta(parsedCommand);
 
+    if (commandMeta.mode === 'deploy') {
+        if (commandMeta.deploymentMode === 'invalid' || parsedCommand.instructions) {
+            await postDeploymentFeedback(owner, repo, prNumber, '⚠️ `/deploy` accepts no arguments, or exactly `dry-run`. No workflow was dispatched.');
+            return;
+        }
+        const repositories = await (config.loadDeploymentRepos ?? loadMonitoredReposRaw)();
+        const repositoryConfig = repositories.find(item => item.name.toLowerCase() === `${owner}/${repo}`.toLowerCase());
+        const deployment = repositoryConfig?.deployment;
+        if (!repositoryConfig?.enabled || !deployment?.enabled) {
+            await postDeploymentFeedback(owner, repo, prNumber, '⚠️ Deployment is not enabled for this repository in ProPR configuration. No workflow was dispatched.');
+            return;
+        }
+        const octokit = await getAuthenticatedOctokit();
+        const { data: pr } = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', { owner, repo, pull_number: prNumber });
+        if (pr.state !== 'closed' || !pr.merged_at) {
+            await postDeploymentFeedback(owner, repo, prNumber, '⚠️ `/deploy` is available after this PR has been merged. No workflow was dispatched.');
+            return;
+        }
+        const issueQueue = await getIssueQueue();
+        const job: DeploymentJobData = {
+            repoOwner: owner,
+            repoName: repo,
+            pullRequestNumber: prNumber,
+            commentId: comment.id,
+            requestingUser: commentAuthor,
+            mode: commandMeta.deploymentMode,
+            correlationId,
+        };
+        await issueQueue.add('processDeployment', job, {
+            jobId: `deploy-${owner}-${repo}-${comment.id}`,
+            attempts: 1,
+            removeOnComplete: { age: 90 * 24 * 3600, count: 10000 },
+            removeOnFail: { age: 90 * 24 * 3600 },
+        });
+        correlatedLogger.info({ repository: `${owner}/${repo}`, pullRequestNumber: prNumber, commentId: comment.id, mode: commandMeta.deploymentMode }, 'Queued backend deployment operation');
+        return;
+    }
+
     if ('warning' in commandMeta && commandMeta.warning) {
         correlatedLogger.warn({ pullRequestNumber: prNumber, commentId: comment.id, commentAuthor }, commandMeta.warning);
     }
@@ -320,6 +363,13 @@ async function handleSlashCommand(opts: SlashCommandHandlerOptions): Promise<voi
     }
 
     await enqueueNewCommentJob(strippedComment, commentAuthor, eventContext, { payload, redisClient, PR_FOLLOWUP_TRIGGER_KEYWORDS: config.PR_FOLLOWUP_TRIGGER_KEYWORDS, MODEL_LABEL_PATTERN: config.MODEL_LABEL_PATTERN, correlationId, commandMeta, commentRevisionIdentity: manualTakeover?.commentRevisionIdentity });
+}
+
+async function postDeploymentFeedback(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
+    const octokit = await getAuthenticatedOctokit();
+    await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+        owner, repo, issue_number: prNumber, body,
+    });
 }
 
 type MergeCommandOptions = Omit<SlashCommandHandlerOptions, 'parsedCommand'>;
@@ -654,6 +704,16 @@ export async function processCommentEvent(payload: IssueCommentEvent | PullReque
 
     const commentAuthor = rawComment.user.login;
     const parsedCommand = parseSlashCommand(rawComment.body);
+    if (parsedCommand?.command === 'deploy' && eventType !== 'issue_comment') {
+        return { status: 'ignored', reason: 'deploy_requires_pr_conversation_comment' };
+    }
+    if (parsedCommand?.command === 'deploy' && !isDeploymentCommentAuthorized(
+        commentAuthor,
+        rawComment.user.type ?? null,
+        (process.env.GITHUB_USER_WHITELIST ?? '').split(','),
+    )) {
+        return { status: 'ignored', reason: 'deploy_not_explicitly_authorized' };
+    }
     const configuredBotUsernames = new Set(
         [getBotUsername(), process.env.GITHUB_BOT_USERNAME, 'propr-dev[bot]']
             .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -682,6 +742,15 @@ export async function processCommentEvent(payload: IssueCommentEvent | PullReque
         return { status: 'ignored', reason: 'ignore_keyword' };
     }
 
+    // GitHub continues delivering issue and review comments on merged conversations.
+    // Keep top-level conversations available for deterministic /deploy while
+    // preventing agent-oriented commands and natural follow-ups on closed PRs.
+    if (parsedCommand?.command !== 'deploy') {
+        const octokit = await getAuthenticatedOctokit();
+        const { data: pr } = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', { owner, repo, pull_number: prNumber });
+        if (pr.state === 'closed') return { status: 'ignored', reason: 'pull_request_closed' };
+    }
+
     // Parse slash commands (/review, /fix, /merge, /switch, /use) before generic follow-up logic
     if (parsedCommand) {
         // /merge dispatches automated checkout/commit/push work, so it is only honoured on
@@ -703,7 +772,7 @@ export async function processCommentEvent(payload: IssueCommentEvent | PullReque
         // atomic: system-created commands can be processed locally before GitHub
         // delivers the real issue_comment.created webhook for the same comment.
         const slashCommentTrackingKey = `pr-comment-processed:${owner}:${repo}:${prNumber}:${comment.id}`;
-        const claimed = await claimCommentForProcessing(redisClient, slashCommentTrackingKey);
+        const claimed = await claimCommentForProcessing(redisClient, slashCommentTrackingKey, parsedCommand.command === 'deploy' ? 0 : 86400);
         if (!claimed) {
             correlatedLogger.debug({ repository: repoFullName, pullRequestNumber: prNumber, commentId: comment.id }, 'Slash command comment already processed, skipping redelivery');
             return { status: 'ignored', reason: 'duplicate_delivery' };

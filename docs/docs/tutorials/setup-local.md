@@ -99,7 +99,7 @@ If you take the own-App path, register the App with these repository permissions
 | Metadata | Read-only |
 | Issues | Read and write |
 | Pull Requests | Read and write |
-| Actions | Read-only (optional; used to read CI check results) |
+| Actions | Read-only for CI check results; grant write if you enable `/deploy` |
 
 **3. Edit the rest of `.env`.** The relevant local-stack values:
 
