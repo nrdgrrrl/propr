@@ -1,6 +1,7 @@
 import path from 'path';
 import logger from '../utils/logger.js';
 import { executeDockerCommand } from './docker/dockerExecutor.js';
+import { resolveLinkedWorktreeGitDir } from '../git/worktreeOperations.js';
 
 export async function setWorktreeOwnership(
     worktreePath: string,
@@ -8,7 +9,13 @@ export async function setWorktreeOwnership(
     options: { protectGitMetadata?: boolean } = {},
 ): Promise<void> {
     try {
-        await executeDockerCommand('sudo', ['chown', '-R', '1000:1000', worktreePath], { timeout: 10000 });
+        const ownershipTargets = [worktreePath];
+        try {
+            ownershipTargets.push(await resolveLinkedWorktreeGitDir(worktreePath));
+        } catch (metadataError) {
+            logger.debug({ issueNumber, worktreePath, error: (metadataError as Error).message }, 'Could not resolve linked Git metadata before agent launch');
+        }
+        await executeDockerCommand('sudo', ['chown', '-R', '1000:1000', '--', ...ownershipTargets], { timeout: 10000 });
         if (options.protectGitMetadata) {
             await executeDockerCommand('sudo', ['chown', 'root:root', path.join(worktreePath, '.git')], { timeout: 10000 });
         }
