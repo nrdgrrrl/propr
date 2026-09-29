@@ -48,6 +48,7 @@ export const CLAUDE_MODELS: ModelInfo[] = [
 // Recommended: gpt-6-luna (default), gpt-6-sol (balanced), gpt-6-astra (flagship)
 export const CODEX_MODELS: ModelInfo[] = [
   { id: 'gpt-6-luna', name: 'GPT-6 Luna', shortName: 'GPT-6 Luna', shortAlias: 'gpt6-luna', githubLabel: 'llm-codex-gpt6-luna', contextWindow: '1.05M', maxTokens: 1050000, openRouterId: 'openai/gpt-6-luna', minAgentVersion: '0.153.1' },
+  { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', shortName: 'GPT-6.1 Sol', shortAlias: 'gpt61-sol', githubLabel: 'llm-codex-gpt61-sol', contextWindow: '1.05M', maxTokens: 1050000, openRouterId: 'openai/gpt-6.1-sol', minAgentVersion: '0.153.1' },
   { id: 'gpt-6-sol', name: 'GPT-6 Sol', shortName: 'GPT-6 Sol', shortAlias: 'gpt6-sol', githubLabel: 'llm-codex-gpt6-sol', contextWindow: '1.05M', maxTokens: 1050000, openRouterId: 'openai/gpt-6-sol', minAgentVersion: '0.153.1' },
   { id: 'gpt-6-astra', name: 'GPT-6 Astra', shortName: 'GPT-6 Astra', shortAlias: 'astra', githubLabel: 'llm-codex-astra', contextWindow: '1.05M', maxTokens: 1050000, openRouterId: 'openai/gpt-6-astra', minAgentVersion: '0.153.1' },
   { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', shortName: 'GPT-5.6 Sol', shortAlias: 'gpt56-sol', githubLabel: 'llm-codex-gpt56-sol', contextWindow: '1.05M', maxTokens: 1050000, openRouterId: 'openai/gpt-5.6-sol', minAgentVersion: '0.144.0' },
