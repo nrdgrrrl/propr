@@ -62,6 +62,7 @@ export const AGENT_BUNDLE_CONTENT_FILES = [
     'scripts/vibe-entrypoint.sh',
     'scripts/vibe-prompt-file-runner.py',
     'scripts/repo-python-bootstrap.sh',
+    'scripts/playwright-chromium.sh',
     'scripts/init-firewall.sh',
     'scripts/gh-wrapper.sh',
     'NOTICE',

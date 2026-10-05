@@ -19,8 +19,8 @@ FROM --platform=${AGENT_PLATFORM} node:22-bookworm-slim AS agent-base
 ARG BASH_VERSION_PREFIX=5.2.15-2
 ARG BUILD_ESSENTIAL_VERSION_PREFIX=12.
 ARG CA_CERTIFICATES_VERSION_PREFIX=20230311+deb12u
-ARG CHROMIUM_VERSION_PREFIX=153.0.8010.52-1~deb12u1
-ARG CHROMIUM_SANDBOX_VERSION_PREFIX=153.0.8010.52-1~deb12u1
+ARG CHROMIUM_VERSION_PREFIX=154.0.8037.92-1~deb12u1
+ARG CHROMIUM_SANDBOX_VERSION_PREFIX=154.0.8037.92-1~deb12u1
 ARG CURL_VERSION_PREFIX=7.88.1-10+deb12u
 # gh comes from GitHub's own apt repo, which only serves recent releases, so its
 # install falls back to the latest available version when this prefix no longer
@@ -35,6 +35,10 @@ ARG PYTHON3_VERSION_PREFIX=3.11.2-1
 ARG RIPGREP_VERSION_PREFIX=13.0.0-4
 ARG TINI_VERSION_PREFIX=0.19.0-1
 ARG GITHUBCLI_KEYRING_SHA256=6084d5d7bd8e288441e0e94fc6275570895da18e6751f70f057485dc2d1a811b
+ARG BUN_VERSION=1.4.2
+ARG BUN_LINUX_X64_BASELINE_SHA256=c678040f14fe0440eb839d37cbd0ce4c051a32da72806ac97de6a6aab6bf728f
+ARG MAILPIT_VERSION=1.31.4
+ARG MAILPIT_LINUX_AMD64_SHA256=30942c4605c2ca8b9f759b1bb4e3ab6a12bdfdf66e5c94644ec2c75ac41e88e7
 
 # GitHub publishes this keyring as a binary .gpg file; no dearmor step is needed.
 RUN set -eu; \
@@ -95,6 +99,38 @@ RUN set -eu; \
     && ln -sf "$(command -v gosu)" /usr/local/bin/su-exec \
     && rm -rf /var/lib/apt/lists/* \
     && chromium --version
+
+# Bun runs EverSecure's local migrations, fixture provisioning, and dev server.
+# Mailpit captures those flows' OTP and invitation emails without any project
+# credentials or external SMTP delivery. Pin both upstream release archives and
+# verify their SHA-256 digests before installing them into the shared agent base.
+RUN set -eu; \
+    bun_archive=/tmp/bun-linux-x64-baseline.zip; \
+    bun_dir=/tmp/bun-release; \
+    mailpit_archive=/tmp/mailpit-linux-amd64.tar.gz; \
+    mailpit_dir=/tmp/mailpit-release; \
+    curl --fail --show-error --silent --location \
+        --connect-timeout 20 --max-time 300 \
+        --retry 5 --retry-delay 2 --retry-max-time 180 --retry-all-errors \
+        -o "$bun_archive" \
+        "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-baseline.zip"; \
+    printf '%s  %s\n' "$BUN_LINUX_X64_BASELINE_SHA256" "$bun_archive" | sha256sum -c -; \
+    mkdir -p "$bun_dir"; \
+    python3 -c 'import shutil, sys, zipfile; z=zipfile.ZipFile(sys.argv[1]); m=[n for n in z.namelist() if n.rsplit("/", 1)[-1] == "bun" and not n.endswith("/")]; assert len(m) == 1, f"expected one Bun binary, got {m}"; shutil.copyfileobj(z.open(m[0]), open(sys.argv[2], "wb"))' "$bun_archive" "$bun_dir/bun"; \
+    install -m 0755 "$bun_dir/bun" /usr/local/bin/bun; \
+    ln -sf /usr/local/bin/bun /usr/local/bin/bunx; \
+    curl --fail --show-error --silent --location \
+        --connect-timeout 20 --max-time 300 \
+        --retry 5 --retry-delay 2 --retry-max-time 180 --retry-all-errors \
+        -o "$mailpit_archive" \
+        "https://github.com/axllent/mailpit/releases/download/v${MAILPIT_VERSION}/mailpit-linux-amd64.tar.gz"; \
+    printf '%s  %s\n' "$MAILPIT_LINUX_AMD64_SHA256" "$mailpit_archive" | sha256sum -c -; \
+    mkdir -p "$mailpit_dir"; \
+    tar -xzf "$mailpit_archive" -C "$mailpit_dir" --no-same-owner --no-same-permissions; \
+    install -m 0755 "$mailpit_dir/mailpit" /usr/local/bin/mailpit; \
+    rm -rf "$bun_archive" "$bun_dir" "$mailpit_archive" "$mailpit_dir"; \
+    bun --version; \
+    mailpit version
 
 RUN mkdir -p /home/node/workspace \
     && chown -R node:node /home/node
